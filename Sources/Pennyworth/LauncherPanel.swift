@@ -2,9 +2,8 @@ import AppKit
 
 /// The floating search window.
 ///
-/// `.nonactivatingPanel` is the key: the panel receives keyboard focus
-/// *without* activating our app, so the app the user was working in keeps
-/// its menu bar and focus ring — exactly how Alfred and Spotlight behave.
+/// A nonactivating panel accepts typing without switching the application's
+/// menu bar. Focus and Spaces behavior are verified separately on macOS.
 final class LauncherPanel: NSPanel {
     override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
         super.init(

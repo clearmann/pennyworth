@@ -1,230 +1,204 @@
 import AppKit
 
-/// The search UI: one big text field on top, result list below.
-final class LauncherViewController: NSViewController {
+/// AppKit presentation; search and execution state live in LauncherModel.
+@MainActor final class LauncherViewController: NSViewController {
     static let panelSize = NSSize(width: 680, height: 420)
-
-    private enum Layout {
-        static let searchFieldHeight: CGFloat = 52
-        static let rowHeight: CGFloat = 44
-        static let edgePadding: CGFloat = 12
-        static let iconSize: CGFloat = 32
-    }
-
+    private let model: LauncherModel
     private let searchField = NSTextField()
     private let tableView = NSTableView()
-
-    private let allItems: [AppItem]
-    private var visibleItems: [AppItem]
-
-    /// Called when the panel should close (item launched, Esc pressed).
+    private let status = NSTextField(labelWithString: "")
+    private let scrollView = NSScrollView()
+    private let iconCache = NSCache<NSURL, NSImage>()
+    private var rendering = false
     var onDismiss: (() -> Void)?
+    var onSettings: (() -> Void)?
+    var onHeightChanged: ((CGFloat) -> Void)?
 
-    init(items: [AppItem]) {
-        self.allItems = items
-        self.visibleItems = items
+    init(model: LauncherModel) {
+        self.model = model
         super.init(nibName: nil, bundle: nil)
+        model.onChange = { [weak self] in self?.render() }
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    // MARK: - View construction
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func loadView() {
-        let effectView = NSVisualEffectView()
-        effectView.material = .popover
-        effectView.state = .active
-        effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = 12
-        effectView.layer?.masksToBounds = true
-
-        configureSearchField()
-        configureTableView()
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = tableView
-        scrollView.drawsBackground = false
-        scrollView.automaticallyAdjustsContentInsets = false
-
-        effectView.addSubview(searchField)
-        effectView.addSubview(scrollView)
-
-        let size = Self.panelSize
-        searchField.frame = NSRect(
-            x: Layout.edgePadding,
-            y: size.height - Layout.searchFieldHeight - 8,
-            width: size.width - Layout.edgePadding * 2,
-            height: Layout.searchFieldHeight
-        )
-        searchField.autoresizingMask = [.width, .minYMargin]
-
-        scrollView.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: size.width,
-            height: size.height - Layout.searchFieldHeight - 16
-        )
-        scrollView.autoresizingMask = [.width, .height]
-
-        view = effectView
+        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.panelSize))
+        effect.material = .popover
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 14
+        effect.layer?.masksToBounds = true
+        view = effect
+        configureSearch()
+        configureTable()
+        status.font = .systemFont(ofSize: 12)
+        status.textColor = .secondaryLabelColor
+        status.lineBreakMode = .byTruncatingTail
+        status.setAccessibilityIdentifier("launcher.status")
+        [searchField, scrollView, status].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            effect.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            searchField.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
+            searchField.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            searchField.topAnchor.constraint(equalTo: effect.topAnchor, constant: 12),
+            searchField.heightAnchor.constraint(equalToConstant: 48),
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            scrollView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
+            status.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
+            status.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
+            status.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
+            status.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        render()
     }
 
-    private func configureSearchField() {
+    private func configureSearch() {
         searchField.font = .systemFont(ofSize: 26, weight: .light)
         searchField.isBezeled = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.placeholderString = "Search apps…"
+        searchField.placeholderString = "搜索应用，空格搜索文件…"
         searchField.delegate = self
+        searchField.setAccessibilityLabel("搜索")
+        searchField.setAccessibilityIdentifier("launcher.query")
     }
 
-    private func configureTableView() {
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("app"))
+    private func configureTable() {
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("result"))
         column.width = Self.panelSize.width
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        tableView.rowHeight = Layout.rowHeight
-        tableView.intercellSpacing = NSSize(width: 0, height: 2)
+        tableView.rowHeight = 56
+        tableView.intercellSpacing = .zero
         tableView.backgroundColor = .clear
-        tableView.style = .sourceList
+        tableView.style = .fullWidth
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
-        tableView.doubleAction = #selector(launchSelectedItem)
+        tableView.doubleAction = #selector(execute)
+        tableView.setAccessibilityLabel("搜索结果")
+        scrollView.documentView = tableView
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
     }
 
-    /// Public entry point called by AppDelegate every time the panel opens.
-    func focusSearchField() {
-        resetSearch()
+    func focusSearchField(reset: Bool = true) {
+        _ = view
+        if reset { searchField.stringValue = ""; model.beginSession() }
         view.window?.makeFirstResponder(searchField)
     }
 
-    // MARK: - Filtering
-
-    private func applyFilter() {
-        let query = searchField.stringValue.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else {
-            visibleItems = allItems
-            reloadAndSelectFirst()
-            return
-        }
-        visibleItems = allItems
-            .compactMap { item in
-                FuzzyMatcher.score(item: item, query: query).map { (item, $0) }
-            }
-            .sorted { $0.1 > $1.1 }
-            .map(\.0)
-        reloadAndSelectFirst()
-    }
-
-    private func reloadAndSelectFirst() {
+    private func render() {
+        guard isViewLoaded else { return }
+        rendering = true
+        defer { rendering = false }
+        searchField.isEditable = !model.isExecuting
+        status.stringValue = model.isExecuting ? "正在执行…" : model.snapshot.message
         tableView.reloadData()
-        if !visibleItems.isEmpty {
-            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        }
+        if let index = model.snapshot.results.firstIndex(where: { $0.id == model.selectedID }) {
+            tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+            tableView.scrollRowToVisible(index)
+        } else { tableView.deselectAll(nil) }
+        onHeightChanged?(106 + CGFloat(min(max(model.snapshot.results.count, 1), 7)) * 56)
     }
 
-    private func resetSearch() {
-        searchField.stringValue = ""
-        visibleItems = allItems
-        reloadAndSelectFirst()
-    }
-
-    // MARK: - Selection & launching
-
-    private func moveSelection(by delta: Int) {
-        guard !visibleItems.isEmpty else { return }
-        let next = min(max(tableView.selectedRow + delta, 0), visibleItems.count - 1)
-        tableView.selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
-        tableView.scrollRowToVisible(next)
-    }
-
-    @objc private func launchSelectedItem() {
-        let row = tableView.selectedRow
-        guard visibleItems.indices.contains(row) else { return }
-        NSWorkspace.shared.open(visibleItems[row].url)
-        onDismiss?()
-    }
+    @objc private func execute() { model.executeSelected() }
 }
-
-// MARK: - NSTextFieldDelegate
 
 extension LauncherViewController: NSTextFieldDelegate {
     func controlTextDidChange(_ notification: Notification) {
-        applyFilter()
+        if let editor = searchField.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
+        model.updateQuery(searchField.stringValue)
     }
 
-    /// Route keys from the search field to the list. Returning true means
-    /// "handled here, don't let the text field interpret the key".
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.moveDown(_:)) {
-            moveSelection(by: 1)
-            return true
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard !textView.hasMarkedText() else { return false }
+        switch selector {
+        case #selector(NSResponder.moveDown(_:)): model.moveSelection(by: 1)
+        case #selector(NSResponder.moveUp(_:)): model.moveSelection(by: -1)
+        case #selector(NSResponder.insertNewline(_:)): execute()
+        case #selector(NSResponder.cancelOperation(_:)): onDismiss?()
+        default: return false
         }
-        if commandSelector == #selector(NSResponder.moveUp(_:)) {
-            moveSelection(by: -1)
-            return true
-        }
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            launchSelectedItem()
-            return true
-        }
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            onDismiss?()
-            return true
-        }
-        return false
+        return true
     }
 }
 
-// MARK: - NSTableViewDataSource / Delegate
-
 extension LauncherViewController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        visibleItems.count
+    func numberOfRows(in tableView: NSTableView) -> Int { model.snapshot.results.count }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !rendering, model.snapshot.results.indices.contains(tableView.selectedRow) else { return }
+        model.select(model.snapshot.results[tableView.selectedRow].id)
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let item = visibleItems[row]
-        let identifier = NSUserInterfaceItemIdentifier("AppCell")
-        let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView)
-            ?? Self.makeCell(identifier: identifier)
-        cell.textField?.stringValue = item.name
-        cell.imageView?.image = item.icon
+        let result = model.snapshot.results[row]
+        let identifier = NSUserInterfaceItemIdentifier("ResultCell")
+        let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? ResultCellView)
+            ?? ResultCellView(identifier: identifier)
+        var icon = NSImage(systemSymbolName: result.symbol, accessibilityDescription: nil)
+        if let url = result.fileURL {
+            icon = iconCache.object(forKey: url as NSURL) ?? NSWorkspace.shared.icon(forFile: url.path)
+            if let icon { iconCache.setObject(icon, forKey: url as NSURL) }
+        }
+        cell.configure(result, icon: icon, selected: result.id == model.selectedID)
         return cell
     }
+}
 
-    private static func makeCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
-        let cell = NSTableCellView()
-        cell.identifier = identifier
+final class ResultCellView: NSTableCellView {
+    private let subtitle = NSTextField(labelWithString: "")
+    private let hint = NSTextField(labelWithString: "↵")
 
-        let imageView = NSImageView(frame: NSRect(
-            x: Layout.edgePadding,
-            y: (Layout.rowHeight - Layout.iconSize) / 2,
-            width: Layout.iconSize,
-            height: Layout.iconSize
-        ))
-        imageView.imageScaling = .scaleProportionallyUpOrDown
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        let image = NSImageView()
+        let title = NSTextField(labelWithString: "")
+        title.font = .systemFont(ofSize: 15, weight: .medium)
+        subtitle.font = .systemFont(ofSize: 12)
+        subtitle.textColor = .secondaryLabelColor
+        title.lineBreakMode = .byTruncatingTail
+        subtitle.lineBreakMode = .byTruncatingMiddle
+        hint.textColor = .secondaryLabelColor
+        [image, title, subtitle, hint].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            image.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            image.centerYAnchor.constraint(equalTo: centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: 32), image.heightAnchor.constraint(equalToConstant: 32),
+            title.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 12),
+            title.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            title.trailingAnchor.constraint(equalTo: hint.leadingAnchor, constant: -12),
+            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
+            subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
+            hint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            hint.centerYAnchor.constraint(equalTo: centerYAnchor), hint.widthAnchor.constraint(equalToConstant: 20),
+        ])
+        imageView = image
+        textField = title
+    }
 
-        let label = NSTextField(labelWithString: "")
-        label.font = .systemFont(ofSize: 15)
-        label.lineBreakMode = .byTruncatingTail
-        label.frame = NSRect(
-            x: Layout.edgePadding + Layout.iconSize + 10,
-            y: 0,
-            width: panelSize.width - Layout.iconSize - 40,
-            height: Layout.rowHeight
-        )
-        label.autoresizingMask = [.width]
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-        cell.addSubview(imageView)
-        cell.addSubview(label)
-        cell.imageView = imageView
-        cell.textField = label
-        return cell
+    func configure(_ result: SearchResult, icon: NSImage?, selected: Bool) {
+        textField?.stringValue = result.title
+        subtitle.stringValue = result.subtitle
+        imageView?.image = icon
+        hint.isHidden = !selected
+        setAccessibilityLabel("\(result.title)，\(result.subtitle)")
     }
 }
