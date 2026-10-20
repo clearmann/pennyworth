@@ -1,0 +1,4 @@
+.build/
+Pennyworth.app/
+*.o
+.DS_Store

@@ -1,2 +1,64 @@
-# pennyworth
-A native macOS launcher inspired by Alfred — Swift + AppKit
+# Pennyworth
+
+Alfred 风格的原生 macOS 启动器原型，Swift + AppKit，无第三方运行时依赖。最低 macOS 13。
+
+独立实现、保留 Pennyworth 品牌，不包含 Alfred 的代码或资源；不是 Alfred 全功能兼容版本。
+
+## 构建与启动
+
+```bash
+swift test
+./build.sh
+open Pennyworth.app --args --show
+```
+
+`--show` 在首次启动时立即展示搜索窗口。应用以菜单栏工具运行，没有 Dock 图标。
+默认快捷键 **⌥Space**；冲突时依次尝试 **⌥⇧Space**、**⌃⌥Space**。菜单栏「显示 Pennyworth」标明实际生效的快捷键；所有快捷键都不可用时，仍可通过菜单栏进入设置。
+
+## 使用
+
+| 输入 / 操作 | 行为 |
+|---|---|
+| `Safari`、`sfr` | 应用名称模糊搜索，回车启动 |
+| 空输入 | 最近/常用应用，无记录时按名称排序 |
+| `open 报告`、前导空格加文件名、`' 报告` | 按文件名检索，回车打开 |
+| `find 报告` | 检索后在 Finder 显示 |
+| `23*17`、`= (12+3)*4` | 四则运算，回车复制结果 |
+| `google 关键词`、`bing 关键词`、`ddg 关键词` | 在指定搜索引擎搜索 |
+| 普通文本最后一条结果 | 使用设置中的默认搜索引擎 |
+| ↑ / ↓、Return、Escape | 选择、执行、关闭 |
+| ⌘, 或菜单栏「设置」 | 配置热键、目录、默认搜索引擎与使用记录 |
+
+**文件搜索须先在设置中添加目录。** 未配置目录不会启动全盘查询。只搜索 Spotlight 已索引的文件名，不搜索文件内容；无匹配不代表没有权限。受保护目录、外置卷和未建立索引的目录可能没有结果。
+
+计算器支持十进制小数、括号、一元正负号、`+ - * /`。不支持幂、百分比、科学函数或科学计数法输入。不精确结果以最多 16 位有效数字显示，输入长度最多 512 字符、嵌套最多 32 层。
+
+网页搜索只在执行结果时打开浏览器，输入时不会发送网络请求。计算器只在按回车时写剪贴板，不监控剪贴板历史。使用记录只记经 Pennyworth 成功启动的应用，可关闭或清空。
+
+## 开发与验证
+
+```bash
+swift build
+swift test --enable-code-coverage
+./build.sh
+```
+
+自动化测试使用临时目录、独立 UserDefaults 和独立命名 pasteboard，不清空真实系统剪贴板。
+现存 `ClipboardItemTests.swift`、`ClipboardStoreTests.swift`、`ClipboardMonitorTests.swift` 是尚未实现的后续规格，已在 `Package.swift` 明确排除，不计入本轮通过测试。
+
+### 本机验收清单
+
+- [ ] 菜单栏和实际生效热键都能唤出；Escape、点击外部可关闭。
+- [ ] `sfr` 找到 Safari，Return 仅执行一次，中文输入法确认候选不会误启动。
+- [ ] 设置添加已索引目录后，`open` 和 `find` 能检索并执行。
+- [ ] `23*17` 显示 `391`，Return 复制；`=1/0` 显示错误。
+- [ ] `ddg 中文 & notes` 在执行时才打开正确搜索地址。
+- [ ] 设置保存并重启后保留；热键冲突不会丢失原有可用热键。
+- [ ] 多屏、Spaces、全屏应用下位置与焦点正常。
+
+当前构建脚本生成本机测试用 `.app`，不是已签名、公证的公开分发包。
+首版不包含剪贴板历史、Snippets、Workflow、文件全文搜索、主题导入、登录启动或自动更新。
+
+## License
+
+MIT
