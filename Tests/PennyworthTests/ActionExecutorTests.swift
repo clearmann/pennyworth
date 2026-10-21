@@ -21,6 +21,9 @@ final class ActionExecutorTests: XCTestCase {
             .openApplication(URL(fileURLWithPath: "/missing-\(UUID()).app")),
             .revealFile(URL(fileURLWithPath: "/missing-\(UUID())")),
             .openURL(URL(string: "file:///etc/passwd")!),
+            .openURL(URL(string: "javascript:alert(1)")!),
+            .openURL(URL(string: "https://user:pass@example.com")!),
+            .openURL(URL(string: "chrome://settings")!),
         ]
         for action in actions {
             var failed = false

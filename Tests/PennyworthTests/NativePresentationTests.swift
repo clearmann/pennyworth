@@ -52,17 +52,22 @@ final class NativePresentationTests: XCTestCase {
         let store = SettingsStore(defaults: defaults)
         try store.save(LauncherSettings(hotKey: .controlOptionSpace, searchDirectories: ["/tmp"], searchEngine: .bing, rememberUsage: false))
         let usage = UsageStore(defaults: defaults)
+        let bookmarkRoot = FileManager.default.temporaryDirectory.appendingPathComponent("PresentationBookmarks-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: bookmarkRoot) }
+        let bookmarks = BookmarkStore(fileURL: bookmarkRoot.appendingPathComponent("bookmarks.json"))
         var shouldFail = false
-        let controller = SettingsWindowController(store: store, usage: usage) { value in
+        let controller = SettingsWindowController(store: store, usage: usage, bookmarks: bookmarks) { value in
             if shouldFail { throw SettingsError.invalidDirectories }
             try store.save(value)
         }
         controller.showWindow(nil)
         defer { controller.close() }
-        let views = descendants(try XCTUnwrap(controller.window?.contentView))
+        var views = descendants(try XCTUnwrap(controller.window?.contentView))
         let save = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "保存" })
         save.performClick(nil)
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue == "设置已保存。" })
+        controller.selectPage("文件搜索")
+        views = descendants(try XCTUnwrap(controller.window?.contentView))
         let remove = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "移除所选" })
         remove.performClick(nil)
         save.performClick(nil)
@@ -71,6 +76,8 @@ final class NativePresentationTests: XCTestCase {
         shouldFail = true
         save.performClick(nil)
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("绝对目录") })
+        controller.selectPage("通用")
+        views = descendants(try XCTUnwrap(controller.window?.contentView))
         let clear = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "清除使用记录" })
         clear.performClick(nil)
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("已清除") })

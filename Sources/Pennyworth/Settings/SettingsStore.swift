@@ -26,6 +26,29 @@ struct LauncherSettings: Codable, Equatable {
     let searchDirectories: [String]
     let searchEngine: SearchEngine
     let rememberUsage: Bool
+    let fallbackOnlyWhenNoResults: Bool
+
+    init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
+         rememberUsage: Bool, fallbackOnlyWhenNoResults: Bool = false) {
+        self.hotKey = hotKey
+        self.searchDirectories = searchDirectories
+        self.searchEngine = searchEngine
+        self.rememberUsage = rememberUsage
+        self.fallbackOnlyWhenNoResults = fallbackOnlyWhenNoResults
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hotKey, searchDirectories, searchEngine, rememberUsage, fallbackOnlyWhenNoResults
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        hotKey = try values.decode(HotKeyPreset.self, forKey: .hotKey)
+        searchDirectories = try values.decode([String].self, forKey: .searchDirectories)
+        searchEngine = try values.decode(SearchEngine.self, forKey: .searchEngine)
+        rememberUsage = try values.decode(Bool.self, forKey: .rememberUsage)
+        fallbackOnlyWhenNoResults = try values.decodeIfPresent(Bool.self, forKey: .fallbackOnlyWhenNoResults) ?? false
+    }
 
     static let defaults = LauncherSettings(hotKey: .optionSpace, searchDirectories: [],
                                            searchEngine: .google, rememberUsage: true)

@@ -16,6 +16,7 @@ enum QueryParser {
         let keyword = parts.first.map(String.init)?.lowercased() ?? ""
         let value = parts.count > 1 ? String(parts[1]) : ""
         switch keyword {
+        case "bm": return request(.bookmarks, value)
         case "open": return request(.fileSearch(.open), value)
         case "find": return request(.fileSearch(.reveal), value)
         case "google": return request(.web(.google), value)

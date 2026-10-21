@@ -4,6 +4,7 @@ import Carbon
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let settings = SettingsStore()
     private let usage = UsageStore()
+    private let bookmarks = BookmarkStore()
     private var model: LauncherModel!
     private var panel: LauncherPanel!
     private var controller: LauncherViewController!
@@ -15,7 +16,8 @@ import Carbon
     private var scanTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        model = LauncherModel(settings: settings, usage: usage, executor: ActionExecutor())
+        model = LauncherModel(settings: settings, usage: usage, executor: ActionExecutor(), bookmarks: bookmarks)
+        bookmarks.onChange = { [weak self] in self?.model.refreshPreferences() }
         controller = LauncherViewController(model: model)
         panel = LauncherPanel(contentRect: NSRect(origin: .zero, size: LauncherViewController.panelSize),
                               styleMask: [], backing: .buffered, defer: false)
@@ -108,7 +110,7 @@ import Carbon
     @objc private func showSettings() {
         hidePanel()
         if preferences == nil {
-            preferences = SettingsWindowController(store: settings, usage: usage) { [weak self] value in
+            preferences = SettingsWindowController(store: settings, usage: usage, bookmarks: bookmarks) { [weak self] value in
                 guard let self else { return }
                 let previous = self.actualHotKey
                 try HotKeyManager.shared.register(modifiers: value.hotKey.modifiers)
@@ -118,6 +120,7 @@ import Carbon
                 }
                 self.actualHotKey = value.hotKey
                 self.hotKeyTitle?.title = "显示 Pennyworth（\(value.hotKey.title)）"
+                self.model.refreshPreferences()
             }
         }
         preferences?.showWindow(nil)

@@ -7,6 +7,7 @@ import os
     private let usage: UsageStore
     private let executor: ActionExecuting
     private let fileSearch: FileSearch
+    private let bookmarks: BookmarkStore?
     private var searchTask: Task<Void, Never>?
     private var generation = UUID()
     private var session = UUID()
@@ -20,7 +21,7 @@ import os
     var onDismiss: (() -> Void)?
     var onExecutionError: (() -> Void)?
 
-    init(settings: SettingsStore, usage: UsageStore, executor: ActionExecuting,
+    init(settings: SettingsStore, usage: UsageStore, executor: ActionExecuting, bookmarks: BookmarkStore? = nil,
          fileSearch: @escaping FileSearch = { query, scopes in
              await FileSearchProvider().search(query: query, scopes: scopes)
          }) {
@@ -28,6 +29,7 @@ import os
         self.usage = usage
         self.executor = executor
         self.fileSearch = fileSearch
+        self.bookmarks = bookmarks
     }
 
     func beginSession() {
@@ -63,9 +65,19 @@ import os
         }
         switch request.intent {
         case .applications:
-            let results = ApplicationSearchProvider.results(items: items, query: request.query,
+            var results = ApplicationSearchProvider.results(items: items, query: request.query,
                                                            usage: usage, enabled: settings.settings.rememberUsage)
-            publish(results + webResults(request.query), message: "↑↓ 选择 · ↵ 打开 · 空格搜文件 · ⌘, 设置")
+            if !request.query.isEmpty, bookmarks?.preferences.includeInDefaultResults == true {
+                results += bookmarkResults(request.query)
+            }
+            let fallback = settings.settings.fallbackOnlyWhenNoResults && !results.isEmpty ? [] : webResults(request.query)
+            publish(results + fallback, message: "↑↓ 选择 · ↵ 打开 · bm 搜书签 · 空格搜文件 · ⌘, 设置")
+        case .bookmarks:
+            guard let bookmarks, bookmarks.preferences.enabled else {
+                publish([], message: "书签搜索未启用，请在设置的网页书签中启用并导入"); return
+            }
+            let results = bookmarkResults(request.query)
+            publish(results, message: results.isEmpty ? "没有匹配书签，请检查来源选择或在设置中导入 / 刷新" : "最多显示 50 项 · ↵ 使用默认浏览器打开")
         case .calculator:
             do {
                 publish(try CalculatorProvider.result(for: request).map { [$0] } ?? [], message: "↵ 复制计算结果")
@@ -83,6 +95,16 @@ import os
 
     private func webResults(_ query: String) -> [SearchResult] {
         WebSearchProvider.result(for: query, engine: settings.settings.searchEngine).map { [$0] } ?? []
+    }
+
+    private func bookmarkResults(_ query: String) -> [SearchResult] {
+        guard let bookmarks else { return [] }
+        return BookmarkSearchProvider.results(entries: bookmarks.searchableEntries, query: query,
+                                              preferences: bookmarks.preferences)
+    }
+
+    func refreshPreferences() {
+        if active && !isExecuting { updateQuery(query) }
     }
 
     private func searchFiles(_ query: String, action: FileAction) {

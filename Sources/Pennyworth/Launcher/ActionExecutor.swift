@@ -19,6 +19,13 @@ enum ActionError: LocalizedError {
     private let pasteboard: NSPasteboard
     init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
 
+    nonisolated static func isAllowedWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { return false }
+        return true
+    }
+
     func execute(_ action: SearchAction, completion: @escaping (Result<Void, Error>) -> Void) {
         switch action {
         case .copyText(let text):
@@ -36,7 +43,7 @@ enum ActionError: LocalizedError {
                 open(url, application: { if case .openApplication = action { return true }; return false }(), completion: completion)
             }
         case .openURL(let url):
-            guard url.scheme == "https", url.host != nil else {
+            guard Self.isAllowedWebURL(url) else {
                 completion(.failure(ActionError.invalidURL)); return
             }
             open(url, application: false, completion: completion)

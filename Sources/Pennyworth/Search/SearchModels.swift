@@ -7,6 +7,7 @@ enum FileAction: Equatable {
 
 enum QueryIntent: Equatable {
     case applications
+    case bookmarks
     case fileSearch(FileAction)
     case calculator
     case web(SearchEngine)
