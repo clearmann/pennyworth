@@ -5,15 +5,18 @@ import XCTest
 final class ClipboardMonitorTests: XCTestCase {
 
     private var monitor: ClipboardMonitor!
+    private var pasteboard: NSPasteboard = NSPasteboard.withUniqueName()
 
     override func setUp() {
         super.setUp()
-        monitor = ClipboardMonitor()
+        pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+        monitor = ClipboardMonitor(pasteboard: pasteboard)
     }
 
     override func tearDown() {
-        // 测试后清空剪贴板，避免测试间互相干扰
-        NSPasteboard.general.clearContents()
+        pasteboard.clearContents()
+        pasteboard.releaseGlobally()
         monitor = nil
         super.tearDown()
     }
@@ -21,7 +24,7 @@ final class ClipboardMonitorTests: XCTestCase {
     // MARK: - 基本检测
 
     func testDetectsNewText() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         pb.setString("test text", forType: .string)
 
@@ -35,7 +38,7 @@ final class ClipboardMonitorTests: XCTestCase {
     }
 
     func testDetectsNewFile() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         let url = URL(fileURLWithPath: "/tmp/test-file.txt")
         pb.writeObjects([url as NSURL])
@@ -50,7 +53,7 @@ final class ClipboardMonitorTests: XCTestCase {
     }
 
     func testDetectsNewImage() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         let image = NSImage(size: NSSize(width: 100, height: 100))
         image.lockFocus()
@@ -74,7 +77,7 @@ final class ClipboardMonitorTests: XCTestCase {
     }
 
     func testDetectsChangeCountChange() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         pb.setString("first", forType: .string)
         let item1 = monitor.checkPasteboard()
@@ -93,7 +96,7 @@ final class ClipboardMonitorTests: XCTestCase {
     // MARK: - 优先级：file > image > text
 
     func testPrioritizesFileOverText() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         let url = URL(fileURLWithPath: "/tmp/priority.txt")
         pb.writeObjects([url as NSURL])
@@ -111,7 +114,7 @@ final class ClipboardMonitorTests: XCTestCase {
     // MARK: - 大小限制
 
     func testIgnoresOversizedText() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         let hugeText = String(repeating: "x", count: 2 * 1024 * 1024) // 2MB
         pb.setString(hugeText, forType: .string)
@@ -120,10 +123,19 @@ final class ClipboardMonitorTests: XCTestCase {
         XCTAssertNil(item, "超过 1MB 的文本应被忽略")
     }
 
+    func testIgnoresConcealedClipboardContent() {
+        let pb = pasteboard
+        pb.clearContents()
+        pb.setString("secret", forType: .string)
+        pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+
+        XCTAssertNil(monitor.checkPasteboard())
+    }
+
     // MARK: - 时间戳
 
     func testItemHasRecentTimestamp() {
-        let pb = NSPasteboard.general
+        let pb = pasteboard
         pb.clearContents()
         pb.setString("timestamp test", forType: .string)
 

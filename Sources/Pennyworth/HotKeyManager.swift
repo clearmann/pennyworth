@@ -20,39 +20,71 @@ protocol HotKeyBackend: AnyObject {
 
 final class HotKeyManager {
     static let shared = HotKeyManager(backend: CarbonHotKeyBackend())
+    private struct Registration {
+        let id: UInt32
+        let keyCode: UInt32
+        let modifiers: UInt32
+        let callback: () -> Void
+    }
+
     private let backend: HotKeyBackend
+    private let legacyName = "default"
     private var installed = false
     private var nextID: UInt32 = 1
-    private var currentID: UInt32?
-    private var currentKey: UInt32?
+    private var registrations: [String: Registration] = [:]
+    private(set) var currentID: UInt32?
+    private(set) var currentKey: UInt32?
     private(set) var currentModifiers: UInt32?
     var onHotKey: (() -> Void)?
 
     init(backend: HotKeyBackend) { self.backend = backend }
 
     func register(keyCode: UInt32 = UInt32(kVK_Space), modifiers: UInt32 = UInt32(optionKey)) throws {
-        if currentID != nil, currentKey == keyCode, currentModifiers == modifiers { return }
+        try register(name: legacyName, keyCode: keyCode, modifiers: modifiers) { [weak self] in
+            self?.onHotKey?()
+        }
+    }
+
+    func register(name: String, keyCode: UInt32, modifiers: UInt32, callback: @escaping () -> Void) throws {
+        if let current = registrations[name], current.keyCode == keyCode, current.modifiers == modifiers { return }
         if !installed {
-            try backend.install { [weak self] id in
-                guard let self, self.currentID == id else { return }
-                self.onHotKey?()
-            }
+            try backend.install { [weak self] id in self?.handle(id: id) }
             installed = true
         }
         let id = nextID
         try backend.register(keyCode: keyCode, modifiers: modifiers, id: id)
-        if let currentID { backend.unregister(id: currentID) }
-        currentID = id
-        currentKey = keyCode
-        currentModifiers = modifiers
+        if let current = registrations[name] { backend.unregister(id: current.id) }
+        registrations[name] = Registration(id: id, keyCode: keyCode, modifiers: modifiers, callback: callback)
+        updateLegacyState()
         nextID &+= 1
     }
 
+    func unregister(name: String) {
+        guard let registration = registrations.removeValue(forKey: name) else { return }
+        backend.unregister(id: registration.id)
+        updateLegacyState()
+    }
+
     func unregister() {
-        if let currentID { backend.unregister(id: currentID) }
-        currentID = nil
-        currentKey = nil
-        currentModifiers = nil
+        for registration in registrations.values { backend.unregister(id: registration.id) }
+        registrations = [:]
+        updateLegacyState()
+    }
+
+    private func handle(id: UInt32) {
+        registrations.values.first(where: { $0.id == id })?.callback()
+    }
+
+    private func updateLegacyState() {
+        guard let registration = registrations[legacyName] else {
+            currentID = nil
+            currentKey = nil
+            currentModifiers = nil
+            return
+        }
+        currentID = registration.id
+        currentKey = registration.keyCode
+        currentModifiers = registration.modifiers
     }
 }
 
@@ -85,7 +117,7 @@ private final class CarbonHotKeyBackend: HotKeyBackend {
     func register(keyCode: UInt32, modifiers: UInt32, id: UInt32) throws {
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(keyCode, modifiers, EventHotKeyID(signature: Self.signature, id: id),
-                                        GetApplicationEventTarget(), 0, &ref)
+                                         GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else { throw HotKeyError.registrationFailed(status) }
         registrations = registrations.merging([id: ref]) { _, new in new }
     }

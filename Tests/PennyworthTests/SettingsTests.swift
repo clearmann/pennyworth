@@ -9,9 +9,20 @@ final class SettingsTests: XCTestCase {
         let store = SettingsStore(defaults: defaults)
         XCTAssertEqual(store.settings.searchDirectories, [])
         let changed = LauncherSettings(hotKey: .controlOptionSpace, searchDirectories: ["/tmp/test"],
-                                       searchEngine: .bing, rememberUsage: false)
+                                       searchEngine: .bing, rememberUsage: false,
+                                       clipboardHotKey: .controlOptionC)
         try store.save(changed)
         XCTAssertEqual(SettingsStore(defaults: defaults).settings, changed)
+    }
+
+    func testOldSettingsUseDefaultClipboardHotKey() throws {
+        let name = "LauncherTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(Data("{\"hotKey\":\"optionSpace\",\"searchDirectories\":[],\"searchEngine\":\"google\",\"rememberUsage\":true}".utf8),
+                     forKey: "launcher.settings.v1")
+
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings.clipboardHotKey, .optionCommandC)
     }
 
     func testInvalidSettingsAreRejectedAndCorruptionIsReported() throws {

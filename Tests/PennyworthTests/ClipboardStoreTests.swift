@@ -88,6 +88,14 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertTrue(emptyStore.items.isEmpty)
     }
 
+    func testSaveRestrictsHistoryFilePermissions() throws {
+        store.add(makeTextItem("private"))
+        store.save()
+        let attributes = try FileManager.default.attributesOfItem(atPath: store.storageURL.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(permissions, 0o600)
+    }
+
     // MARK: - clear()
 
     func testClearEmptiesItems() {

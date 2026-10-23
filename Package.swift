@@ -8,12 +8,7 @@ let package = Package(
         .executableTarget(name: "Pennyworth"),
         .testTarget(
             name: "PennyworthTests",
-            dependencies: ["Pennyworth"],
-            exclude: [
-                "ClipboardItemTests.swift",
-                "ClipboardMonitorTests.swift",
-                "ClipboardStoreTests.swift",
-            ]
+            dependencies: ["Pennyworth"]
         ),
     ]
 )

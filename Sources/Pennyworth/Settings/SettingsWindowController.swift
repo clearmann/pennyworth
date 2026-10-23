@@ -11,6 +11,7 @@ private final class SettingsPageHost: NSView {
     private let bookmarks: BookmarkStore?
     private let apply: (LauncherSettings) throws -> Void
     private let hotKey = NSPopUpButton()
+    private let clipboardHotKey = NSPopUpButton()
     private let engine = NSPopUpButton()
     private let fallback = NSPopUpButton()
     private let remember = NSButton(checkboxWithTitle: "记住应用使用频率", target: nil, action: nil)
@@ -54,7 +55,8 @@ private final class SettingsPageHost: NSView {
 
     override func showWindow(_ sender: Any?) {
         let value = store.settings
-        hotKey.selectItem(at: HotKeyPreset.allCases.firstIndex(of: value.hotKey) ?? 0)
+        hotKey.selectItem(at: HotKeyPreset.launcherPresets.firstIndex(of: value.hotKey) ?? 0)
+        clipboardHotKey.selectItem(at: HotKeyPreset.clipboardPresets.firstIndex(of: value.clipboardHotKey) ?? 0)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         fallback.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
         remember.state = value.rememberUsage ? .on : .off
@@ -67,10 +69,12 @@ private final class SettingsPageHost: NSView {
 
     private func configure() {
         guard let content = window?.contentView else { return }
-        hotKey.addItems(withTitles: HotKeyPreset.allCases.map(\.title))
+        hotKey.addItems(withTitles: HotKeyPreset.launcherPresets.map(\.title))
+        clipboardHotKey.addItems(withTitles: HotKeyPreset.clipboardPresets.map(\.title))
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
         fallback.addItems(withTitles: ["始终显示在最后", "仅无本地匹配时显示"])
         hotKey.setAccessibilityLabel("全局热键")
+        clipboardHotKey.setAccessibilityLabel("剪贴板历史热键")
         engine.setAccessibilityLabel("默认搜索引擎")
         fallback.setAccessibilityLabel("网页搜索兜底")
         directories.setAccessibilityLabel("文件搜索目录")
@@ -139,7 +143,9 @@ private final class SettingsPageHost: NSView {
 
     private func buildPages() {
         addPage("通用", description: "设置唤出方式与应用使用记录。", controls: [
-            row("全局热键", hotKey), remember,
+            row("全局热键", hotKey),
+            row("剪贴板历史热键", clipboardHotKey),
+            remember,
             NSButton(title: "清除使用记录", target: self, action: #selector(clearHistory)),
         ])
         defaultBookmarks.target = self
@@ -397,11 +403,12 @@ private final class SettingsPageHost: NSView {
     }
 
     @objc private func saveSettings() {
-        let value = LauncherSettings(hotKey: HotKeyPreset.allCases[hotKey.indexOfSelectedItem],
+        let value = LauncherSettings(hotKey: HotKeyPreset.launcherPresets[hotKey.indexOfSelectedItem],
                                      searchDirectories: paths,
                                      searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
                                      rememberUsage: remember.state == .on,
-                                     fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1)
+                                     fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
+                                     clipboardHotKey: HotKeyPreset.clipboardPresets[clipboardHotKey.indexOfSelectedItem])
         do {
             try apply(value)
             feedback.stringValue = "设置已保存。"
