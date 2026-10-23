@@ -10,8 +10,8 @@ private final class SettingsPageHost: NSView {
     private let usage: UsageStore
     private let bookmarks: BookmarkStore?
     private let apply: (LauncherSettings) throws -> Void
-    private let hotKey = NSPopUpButton()
-    private let clipboardHotKey = NSPopUpButton()
+    private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
+    private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
     private let engine = NSPopUpButton()
     private let fallback = NSPopUpButton()
     private let remember = NSButton(checkboxWithTitle: "记住应用使用频率", target: nil, action: nil)
@@ -55,26 +55,24 @@ private final class SettingsPageHost: NSView {
 
     override func showWindow(_ sender: Any?) {
         let value = store.settings
-        hotKey.selectItem(at: HotKeyPreset.launcherPresets.firstIndex(of: value.hotKey) ?? 0)
-        clipboardHotKey.selectItem(at: HotKeyPreset.clipboardPresets.firstIndex(of: value.clipboardHotKey) ?? 0)
+        hotKeyRecorder.setBinding(value.hotKey)
+        clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         fallback.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
         remember.state = value.rememberUsage ? .on : .off
         paths = value.searchDirectories
         reloadDirectories()
-        reloadBookmarks()
         feedback.stringValue = store.warning ?? "常规设置点击保存生效；书签选项与导入操作立即保存。"
         super.showWindow(sender)
+        reloadBookmarks()
     }
 
     private func configure() {
         guard let content = window?.contentView else { return }
-        hotKey.addItems(withTitles: HotKeyPreset.launcherPresets.map(\.title))
-        clipboardHotKey.addItems(withTitles: HotKeyPreset.clipboardPresets.map(\.title))
+        hotKeyRecorder.setAccessibilityLabel("全局热键")
+        clipboardHotKeyRecorder.setAccessibilityLabel("剪贴板历史热键")
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
         fallback.addItems(withTitles: ["始终显示在最后", "仅无本地匹配时显示"])
-        hotKey.setAccessibilityLabel("全局热键")
-        clipboardHotKey.setAccessibilityLabel("剪贴板历史热键")
         engine.setAccessibilityLabel("默认搜索引擎")
         fallback.setAccessibilityLabel("网页搜索兜底")
         directories.setAccessibilityLabel("文件搜索目录")
@@ -143,8 +141,8 @@ private final class SettingsPageHost: NSView {
 
     private func buildPages() {
         addPage("通用", description: "设置唤出方式与应用使用记录。", controls: [
-            row("全局热键", hotKey),
-            row("剪贴板历史热键", clipboardHotKey),
+            row("全局热键", hotKeyRecorder),
+            row("剪贴板历史热键", clipboardHotKeyRecorder),
             remember,
             NSButton(title: "清除使用记录", target: self, action: #selector(clearHistory)),
         ])
@@ -197,7 +195,7 @@ private final class SettingsPageHost: NSView {
             note("支持四则运算、小数、括号和一元正负号。"),
             note("例如：23 * 17、(12 + 8) / 4。使用 = 前缀可明确进入计算模式。"),
         ])
-        reloadBookmarks()
+        // Bookmark state is loaded after the window is first presented.
     }
 
     private func addPage(_ title: String, description: String, controls: [NSView]) {
@@ -286,10 +284,10 @@ private final class SettingsPageHost: NSView {
             button.identifier = NSUserInterfaceItemIdentifier(profile.id)
             button.toolTip = "\(profile.name)\n\(profile.id)"
             button.cell?.lineBreakMode = .byTruncatingMiddle
-            button.widthAnchor.constraint(equalTo: profileList.widthAnchor).isActive = true
             button.state = profile.selected ? .on : .off
             button.isEnabled = !bookmarkBusy
             profileList.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalTo: profileList.widthAnchor).isActive = true
         }
         let snapshots = bookmarks.snapshots.values
         if bookmarkBusy {
@@ -403,12 +401,12 @@ private final class SettingsPageHost: NSView {
     }
 
     @objc private func saveSettings() {
-        let value = LauncherSettings(hotKey: HotKeyPreset.launcherPresets[hotKey.indexOfSelectedItem],
+        let value = LauncherSettings(hotKey: hotKeyRecorder.binding ?? .optionSpace,
                                      searchDirectories: paths,
                                      searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
                                      rememberUsage: remember.state == .on,
                                      fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
-                                     clipboardHotKey: HotKeyPreset.clipboardPresets[clipboardHotKey.indexOfSelectedItem])
+                                     clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC)
         do {
             try apply(value)
             feedback.stringValue = "设置已保存。"

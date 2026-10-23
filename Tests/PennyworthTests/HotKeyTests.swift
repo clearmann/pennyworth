@@ -20,24 +20,35 @@ final class HotKeyTests: XCTestCase {
         XCTAssertNil(manager.currentModifiers)
     }
 
-    func testNamedHotKeysRouteAndUnregisterIndependently() throws {
-        let backend = FakeHotKeyBackend()
-        let manager = HotKeyManager(backend: backend)
-        var events: [String] = []
-        try manager.register(name: "launcher", keyCode: 49, modifiers: 1) { events.append("launcher") }
-        try manager.register(name: "clipboard", keyCode: 8, modifiers: 3) { events.append("clipboard") }
+    func testCustomHotKeyRoundTripsAndFormatsTitle() throws {
+        let binding = HotKeyPreset.custom(keyCode: 35, modifiers: 256 | 4096)
+        let data = try JSONEncoder().encode(binding)
+        let decoded = try JSONDecoder().decode(HotKeyPreset.self, from: data)
 
-        try manager.register(name: "settings", keyCode: 2, modifiers: 4) { events.append("settings") }
-        backend.emit(id: 1)
-        backend.emit(id: 2)
-        backend.emit(id: 3)
-        manager.unregister(name: "launcher")
-        backend.emit(id: 1)
-        backend.emit(id: 2)
-        backend.emit(id: 3)
+        XCTAssertEqual(decoded, binding)
+        XCTAssertEqual(binding.title, "⌘⌃P")
+    }
 
-        XCTAssertEqual(events, ["launcher", "clipboard", "settings", "clipboard", "settings"])
-        XCTAssertEqual(backend.removed, [1])
+    @MainActor func testRecorderAcceptsModifiedKeyAndCancelRestoresPreviousBinding() {
+        let recorder = HotKeyRecorderView(binding: .optionSpace)
+        recorder.beginRecording()
+
+        XCTAssertTrue(recorder.processKey(keyCode: 35, modifiers: 256 | 4096))
+        XCTAssertEqual(recorder.binding, .custom(keyCode: 35, modifiers: 256 | 4096))
+
+        recorder.beginRecording()
+        XCTAssertTrue(recorder.processKey(keyCode: 53, modifiers: 0))
+        XCTAssertEqual(recorder.binding, .custom(keyCode: 35, modifiers: 256 | 4096))
+    }
+
+    @MainActor func testRecorderRejectsUnmodifiedKeyAndCanClearBinding() {
+        let recorder = HotKeyRecorderView(binding: .optionSpace)
+        recorder.beginRecording()
+
+        XCTAssertFalse(recorder.processKey(keyCode: 35, modifiers: 0))
+        XCTAssertEqual(recorder.binding, .optionSpace)
+        XCTAssertTrue(recorder.processKey(keyCode: 51, modifiers: 0))
+        XCTAssertNil(recorder.binding)
     }
 }
 

@@ -2,6 +2,22 @@
 import XCTest
 
 final class SettingsTests: XCTestCase {
+    func testCustomHotKeysArePersistedAndConflictsAreRejected() throws {
+        let name = "CustomHotKeys.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = SettingsStore(defaults: defaults)
+        let custom = HotKeyPreset.custom(keyCode: 35, modifiers: 256 | 4096)
+        try store.save(LauncherSettings(hotKey: custom, searchDirectories: [], searchEngine: .google,
+                                        rememberUsage: true, clipboardHotKey: .optionCommandC))
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings.hotKey, custom)
+        XCTAssertThrowsError(try store.save(LauncherSettings(hotKey: custom, searchDirectories: [], searchEngine: .google,
+                                                             rememberUsage: true, clipboardHotKey: custom)))
+        XCTAssertThrowsError(try store.save(LauncherSettings(hotKey: .custom(keyCode: 43, modifiers: 256),
+                                                             searchDirectories: [], searchEngine: .google,
+                                                             rememberUsage: true, clipboardHotKey: .optionCommandC)))
+    }
+
     func testSettingsPersistAndEmptyScopesStayEmpty() throws {
         let name = "PennyworthTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

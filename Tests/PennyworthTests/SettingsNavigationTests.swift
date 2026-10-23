@@ -15,16 +15,16 @@ final class SettingsNavigationTests: XCTestCase {
         controller.showWindow(nil)
         defer { controller.close() }
         let views = descendants(try XCTUnwrap(controller.window?.contentView))
-        let hotKey = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first {
+        let hotKey = try XCTUnwrap(views.compactMap { $0 as? HotKeyRecorderView }.first {
             $0.accessibilityLabel() == "全局热键"
         })
-        hotKey.selectItem(at: 2)
+        hotKey.setBinding(.controlOptionSpace)
         for title in SettingsWindowController.pageTitles {
             controller.selectPage(title)
             XCTAssertEqual(controller.selectedPageTitle, title)
         }
         controller.selectPage("通用")
-        XCTAssertEqual(hotKey.indexOfSelectedItem, 2)
+        XCTAssertEqual(hotKey.binding, .controlOptionSpace)
         XCTAssertEqual(store.settings.hotKey, .optionSpace)
         let save = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "保存" })
         save.performClick(nil)

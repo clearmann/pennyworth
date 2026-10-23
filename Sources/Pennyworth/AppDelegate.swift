@@ -95,7 +95,8 @@ import Carbon
 
     private func registerStartupHotKey(name: String, requested: HotKeyPreset, candidates: [HotKeyPreset],
                                        callback: @escaping () -> Void) -> HotKeyPreset? {
-        for preset in [requested] + candidates.filter({ $0 != requested }) {
+        let options = requested.isCustom ? [requested] : [requested] + candidates.filter({ $0 != requested })
+        for preset in options {
             do {
                 try HotKeyManager.shared.register(name: name, keyCode: preset.keyCode,
                                                   modifiers: preset.modifiers, callback: callback)
@@ -163,6 +164,12 @@ import Carbon
     }
 
     @objc private func showSettings() {
+        DispatchQueue.main.async { [weak self] in
+            self?.presentSettings()
+        }
+    }
+
+    private func presentSettings() {
         hidePanel()
         hideClipboardPanel()
         if preferences == nil {
@@ -170,8 +177,8 @@ import Carbon
                 try self?.applySettings(value)
             }
         }
-        preferences?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+        preferences?.showWindow(nil)
         preferences?.window?.makeKeyAndOrderFront(nil)
     }
 
