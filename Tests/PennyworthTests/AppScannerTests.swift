@@ -226,6 +226,42 @@ final class AppScannerTests: XCTestCase {
         }
     }
 
+    func testReadsLocalizedNamesFromInfoPlistLocTable() throws {
+        let app = try makeApp("Activity Monitor.app")
+        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let table = [
+            "en": ["CFBundleName": "Activity Monitor"],
+            "zh_CN": ["CFBundleName": "活动监视器"],
+            "zh_TW": ["CFBundleDisplayName": "活動監視器"],
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: table,
+            format: .binary,
+            options: 0
+        )
+        try data.write(to: resources.appendingPathComponent("InfoPlist.loctable"))
+
+        let item = try XCTUnwrap(AppScanner.scan(directories: [root]).first)
+
+        XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "活动监视器"))
+        XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "活動監視器"))
+        XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "Activity Monitor"))
+    }
+
+    func testMalformedInfoPlistLocTableKeepsRawApplicationName() throws {
+        let app = try makeApp("Activity Monitor.app")
+        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        try Data("not a property list".utf8).write(
+            to: resources.appendingPathComponent("InfoPlist.loctable")
+        )
+
+        let item = try XCTUnwrap(AppScanner.scan(directories: [root]).first)
+
+        XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "Activity Monitor"))
+    }
+
     // MARK: - Ordering
 
     func testResultsAreSortedByLocalizedName() throws {

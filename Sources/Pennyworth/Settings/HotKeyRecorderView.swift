@@ -63,7 +63,7 @@ import Carbon
     func beginRecording() {
         originalBinding = binding
         isRecording = true
-        hint.stringValue = "按下组合键，Esc 取消"
+        hint.stringValue = "按下快捷键，Esc 取消"
         layer?.borderColor = NSColor.controlAccentColor.cgColor
     }
 
@@ -81,7 +81,7 @@ import Carbon
             updateDisplay()
             return true
         }
-        guard modifiers != 0 else {
+        guard modifiers != 0 || HotKeyPreset.supportsWithoutModifier(keyCode) else {
             hint.stringValue = "快捷键必须包含 ⌘、⌥、⌃ 或 ⇧"
             return false
         }

@@ -48,6 +48,16 @@ enum HotKeyPreset: Equatable, Codable {
 
     static let launcherPresets: [HotKeyPreset] = [.optionSpace, .optionShiftSpace, .controlOptionSpace]
     static let clipboardPresets: [HotKeyPreset] = [.optionCommandC, .controlOptionC]
+    private static let extendedFunctionKeys: [UInt32: String] = [
+        UInt32(kVK_F13): "F13", UInt32(kVK_F14): "F14",
+        UInt32(kVK_F15): "F15", UInt32(kVK_F16): "F16",
+        UInt32(kVK_F17): "F17", UInt32(kVK_F18): "F18",
+        UInt32(kVK_F19): "F19", UInt32(kVK_F20): "F20",
+    ]
+
+    static func supportsWithoutModifier(_ keyCode: UInt32) -> Bool {
+        extendedFunctionKeys[keyCode] != nil
+    }
 
     private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
     private enum Fixed: String, Codable {
@@ -105,6 +115,7 @@ enum HotKeyPreset: Equatable, Codable {
         if keyCode == UInt32(kVK_ANSI_C) { return "C" }
         if keyCode == UInt32(kVK_ANSI_P) { return "P" }
         if keyCode == UInt32(kVK_ANSI_Comma) { return "," }
+        if let functionKey = extendedFunctionKeys[keyCode] { return functionKey }
         return "Key \(keyCode)"
     }
 }
@@ -196,7 +207,9 @@ final class SettingsStore {
         if allowed == .clipboard && HotKeyPreset.clipboardPresets.contains(binding) { return true }
         guard case .custom(let keyCode, let modifiers) = binding else { return false }
         let allowedModifiers = UInt32(cmdKey | optionKey | controlKey | shiftKey)
-        return keyCode <= UInt32(UInt16.max) && modifiers != 0 && modifiers & ~allowedModifiers == 0
+        return keyCode <= UInt32(UInt16.max)
+            && (modifiers != 0 || HotKeyPreset.supportsWithoutModifier(keyCode))
+            && modifiers & ~allowedModifiers == 0
     }
 }
 

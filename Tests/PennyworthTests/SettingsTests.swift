@@ -18,6 +18,24 @@ final class SettingsTests: XCTestCase {
                                                              rememberUsage: true, clipboardHotKey: .optionCommandC)))
     }
 
+    func testUnmodifiedExtendedFunctionKeysArePersisted() throws {
+        let name = "FunctionKeyHotKeys.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = SettingsStore(defaults: defaults)
+        let changed = LauncherSettings(
+            hotKey: .custom(keyCode: 80, modifiers: 0),
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            clipboardHotKey: .custom(keyCode: 79, modifiers: 0)
+        )
+
+        try store.save(changed)
+
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings, changed)
+    }
+
     func testSettingsPersistAndEmptyScopesStayEmpty() throws {
         let name = "PennyworthTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

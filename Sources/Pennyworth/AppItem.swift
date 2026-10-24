@@ -5,8 +5,8 @@ struct AppItem: Equatable {
     /// Localized display name, e.g. "活动监视器" on a Chinese system.
     let name: String
     let url: URL
-    /// Other names the app is known by: the bundle's raw file name and any
-    /// future localized variants. Never contains `name` itself.
+    /// Other names the app is known by: the bundle's raw file name and
+    /// localized variants loaded from its resources. Never contains `name` itself.
     let aliases: [String]
 
     init(name: String, url: URL, aliases: [String] = []) {

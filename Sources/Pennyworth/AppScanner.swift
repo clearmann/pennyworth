@@ -109,7 +109,34 @@ enum AppScanner {
         let rawName = url.deletingPathExtension().lastPathComponent
         let name = localizedName.isEmpty ? rawName : localizedName
 
-        return AppItem(name: name, url: url, aliases: [rawName])
+        return AppItem(name: name, url: url, aliases: [rawName] + localizedNames(for: url))
+    }
+
+    /// Reads display names embedded by modern macOS apps. Unlike
+    /// `FileManager.displayName`, these remain available when the process was
+    /// launched with a different localization environment.
+    private static func localizedNames(for url: URL) -> [String] {
+        let tableURL = url.appendingPathComponent("Contents/Resources/InfoPlist.loctable")
+        guard FileManager.default.fileExists(atPath: tableURL.path) else { return [] }
+
+        do {
+            let data = try Data(contentsOf: tableURL)
+            let propertyList = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            )
+            guard let table = propertyList as? [String: Any] else { return [] }
+            return table.keys.sorted().flatMap { locale -> [String] in
+                guard let values = table[locale] as? [String: Any] else { return [] }
+                return ["CFBundleDisplayName", "CFBundleName"].compactMap { values[$0] as? String }
+            }
+        } catch {
+            logger.error(
+                "Cannot read localized application names: \(tableURL.path, privacy: .private) — \(error.localizedDescription, privacy: .private)"
+            )
+            return []
+        }
     }
 
     /// Strips trailing ".app", case-insensitively. Repeated because

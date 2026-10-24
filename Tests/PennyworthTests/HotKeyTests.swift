@@ -29,6 +29,17 @@ final class HotKeyTests: XCTestCase {
         XCTAssertEqual(binding.title, "⌘⌃P")
     }
 
+    func testExtendedFunctionKeyTitles() {
+        let functionKeys: [(keyCode: UInt32, name: String)] = [
+            (105, "F13"), (107, "F14"), (113, "F15"), (106, "F16"),
+            (64, "F17"), (79, "F18"), (80, "F19"), (90, "F20"),
+        ]
+
+        for key in functionKeys {
+            XCTAssertEqual(HotKeyPreset.custom(keyCode: key.keyCode, modifiers: 0).title, key.name)
+        }
+    }
+
     @MainActor func testRecorderAcceptsModifiedKeyAndCancelRestoresPreviousBinding() {
         let recorder = HotKeyRecorderView(binding: .optionSpace)
         recorder.beginRecording()
@@ -39,6 +50,21 @@ final class HotKeyTests: XCTestCase {
         recorder.beginRecording()
         XCTAssertTrue(recorder.processKey(keyCode: 53, modifiers: 0))
         XCTAssertEqual(recorder.binding, .custom(keyCode: 35, modifiers: 256 | 4096))
+    }
+
+    @MainActor func testRecorderAcceptsUnmodifiedExtendedFunctionKeys() {
+        let functionKeys: [(keyCode: UInt32, name: String)] = [
+            (105, "F13"), (107, "F14"), (113, "F15"), (106, "F16"),
+            (64, "F17"), (79, "F18"), (80, "F19"), (90, "F20"),
+        ]
+
+        for key in functionKeys {
+            let recorder = HotKeyRecorderView(binding: .optionSpace)
+            recorder.beginRecording()
+
+            XCTAssertTrue(recorder.processKey(keyCode: key.keyCode, modifiers: 0), key.name)
+            XCTAssertEqual(recorder.binding, .custom(keyCode: key.keyCode, modifiers: 0), key.name)
+        }
     }
 
     @MainActor func testRecorderRejectsUnmodifiedKeyAndCanClearBinding() {
