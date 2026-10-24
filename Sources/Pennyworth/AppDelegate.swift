@@ -20,6 +20,9 @@ import Carbon
     private var actualClipboardHotKey: HotKeyPreset?
     private var scanTask: Task<Void, Never>?
     private var clipboardTimer: Timer?
+    private let focusRestorer = ApplicationFocusRestorer(frontmostApplication: {
+        NSWorkspace.shared.frontmostApplication
+    })
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = LauncherModel(settings: settings, usage: usage, executor: ActionExecutor(), bookmarks: bookmarks)
@@ -30,7 +33,7 @@ import Carbon
         panel.title = "Pennyworth"
         panel.contentViewController = controller
         panel.delegate = self
-        controller.onDismiss = { [weak self] in self?.hidePanel() }
+        controller.onDismiss = { [weak self] in self?.dismissPanel() }
         controller.onHeightChanged = { [weak self] height in self?.resizePanel(self?.panel, height: height) }
         model.onDismiss = { [weak self] in self?.panel.orderOut(nil) }
         model.onExecutionError = { [weak self] in self?.showPanel(reset: false) }
@@ -115,6 +118,7 @@ import Carbon
     }
 
     private func showPanel(reset: Bool = true) {
+        focusRestorer.captureFrontmostApplication()
         show(panel, size: LauncherViewController.panelSize)
         controller.focusSearchField(reset: reset)
     }
@@ -144,6 +148,11 @@ import Carbon
         let old = target.frame
         let y = max(bounds.minY + 12, min(old.maxY - newHeight, bounds.maxY - newHeight - 12))
         target.setFrame(NSRect(x: old.minX, y: y, width: old.width, height: newHeight), display: true)
+    }
+
+    private func dismissPanel() {
+        hidePanel()
+        focusRestorer.restorePreviousApplication()
     }
 
     private func hidePanel() {
