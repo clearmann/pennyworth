@@ -60,7 +60,7 @@ import os
         searchTask?.cancel()
         searchTask = nil
         selectedID = nil
-        guard let request = QueryParser.parse(raw) else {
+        guard let request = QueryParser.parse(raw, webSearches: settings.settings.webSearches) else {
             publish([], message: "输入过长，最多 512 个字符"); return
         }
         switch request.intent {
@@ -85,8 +85,8 @@ import os
                 publish(request.explicitCalculation ? [] : webResults(request.query),
                         message: request.explicitCalculation ? error.localizedDescription : "继续输入算式，或回车网页搜索")
             }
-        case .web(let engine):
-            publish(WebSearchProvider.result(for: request.query, engine: engine).map { [$0] } ?? [],
+        case .web(let definition):
+            publish(WebSearchProvider.result(for: request.query, definition: definition).map { [$0] } ?? [],
                     message: "输入关键词，回车后才会打开浏览器")
         case .fileSearch(let action):
             searchFiles(request.query, action: action)

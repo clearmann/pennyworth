@@ -124,23 +124,25 @@ struct LauncherSettings: Codable, Equatable {
     let hotKey: HotKeyPreset
     let searchDirectories: [String]
     let searchEngine: SearchEngine
+    let webSearches: [WebSearchDefinition]
     let rememberUsage: Bool
     let fallbackOnlyWhenNoResults: Bool
     let clipboardHotKey: HotKeyPreset
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
-         rememberUsage: Bool, fallbackOnlyWhenNoResults: Bool = false,
-         clipboardHotKey: HotKeyPreset = .optionCommandC) {
+         rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
+         fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
+        self.webSearches = webSearches
         self.rememberUsage = rememberUsage
         self.fallbackOnlyWhenNoResults = fallbackOnlyWhenNoResults
         self.clipboardHotKey = clipboardHotKey
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hotKey, searchDirectories, searchEngine, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey
+        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey
     }
 
     init(from decoder: Decoder) throws {
@@ -148,6 +150,8 @@ struct LauncherSettings: Codable, Equatable {
         hotKey = try values.decode(HotKeyPreset.self, forKey: .hotKey)
         searchDirectories = try values.decode([String].self, forKey: .searchDirectories)
         searchEngine = try values.decode(SearchEngine.self, forKey: .searchEngine)
+        webSearches = try values.decodeIfPresent([WebSearchDefinition].self, forKey: .webSearches)
+            ?? WebSearchDefinition.builtIns
         rememberUsage = try values.decode(Bool.self, forKey: .rememberUsage)
         fallbackOnlyWhenNoResults = try values.decodeIfPresent(Bool.self, forKey: .fallbackOnlyWhenNoResults) ?? false
         clipboardHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .clipboardHotKey) ?? .optionCommandC
@@ -187,6 +191,7 @@ final class SettingsStore {
     }
 
     private static func validate(_ value: LauncherSettings) throws {
+        try WebSearchDefinition.validate(value.webSearches)
         guard value.searchDirectories.count <= 32,
               value.searchDirectories.allSatisfy({ $0.hasPrefix("/") && !$0.contains("\0") }) else {
             throw SettingsError.invalidDirectories

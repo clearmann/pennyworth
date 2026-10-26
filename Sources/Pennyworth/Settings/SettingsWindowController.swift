@@ -13,6 +13,7 @@ private final class SettingsPageHost: NSView {
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
     private let engine = NSPopUpButton()
+    private let webSearchSettings = WebSearchSettingsView()
     private let fallback = NSPopUpButton()
     private let remember = NSButton(checkboxWithTitle: "记住应用使用频率", target: nil, action: nil)
     private let directories = NSPopUpButton()
@@ -58,6 +59,7 @@ private final class SettingsPageHost: NSView {
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
+        webSearchSettings.reload(value.webSearches)
         fallback.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
         remember.state = value.rememberUsage ? .on : .off
         paths = value.searchDirectories
@@ -165,8 +167,13 @@ private final class SettingsPageHost: NSView {
             note("使用 open 打开文件，使用 find 在 Finder 中显示文件。"),
         ])
         addPage("网页搜索", description: "在浏览器中执行搜索，输入时不会发送网络请求。", controls: [
-            row("默认搜索引擎", engine), note("也可使用 google、bing 或 ddg 关键词指定搜索引擎。"),
+            row("默认搜索引擎", engine),
+            webSearchSettings,
+            note("输入“关键词 搜索内容”后回车。{query} 会被替换为编码后的搜索内容；内置项只能启停，自定义项可编辑。"),
         ])
+        if let page = pages["网页搜索"] {
+            webSearchSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        }
         for button in [bookmarkEnabled, bookmarkInDefault, matchTitle, matchURL, matchFolders] {
             button.target = self
             button.action = #selector(bookmarkPreferenceChanged(_:))
@@ -405,6 +412,7 @@ private final class SettingsPageHost: NSView {
                                      searchDirectories: paths,
                                      searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
                                      rememberUsage: remember.state == .on,
+                                     webSearches: webSearchSettings.definitions,
                                      fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
                                      clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC)
         do {

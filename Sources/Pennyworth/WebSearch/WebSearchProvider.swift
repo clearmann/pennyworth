@@ -21,6 +21,30 @@ enum SearchEngine: String, Codable, CaseIterable {
 }
 
 enum WebSearchProvider {
+    static func result(for query: String, definition: WebSearchDefinition) -> SearchResult? {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              query.count <= 512,
+              let url = url(for: query, definition: definition) else { return nil }
+        return SearchResult(
+            id: "web:\(definition.id):\(query)",
+            title: "Search \(definition.title) for \(query)",
+            subtitle: "回车在默认浏览器中搜索", symbol: "globe", action: .openURL(url)
+        )
+    }
+
+    static func url(for query: String, definition: WebSearchDefinition) -> URL? {
+        // Unreserved characters are safe in both path and query placeholders.
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard definition.urlTemplate.contains("{query}"),
+              let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        let expanded = definition.urlTemplate.replacingOccurrences(of: "{query}", with: encoded)
+        guard let components = URLComponents(string: expanded),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = components.host, !host.isEmpty,
+              components.user == nil, components.password == nil else { return nil }
+        return components.url
+    }
+
     static func result(for query: String, engine: SearchEngine) -> SearchResult? {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               query.count <= 512,

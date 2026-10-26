@@ -10,7 +10,7 @@ enum QueryIntent: Equatable {
     case bookmarks
     case fileSearch(FileAction)
     case calculator
-    case web(SearchEngine)
+    case web(WebSearchDefinition)
 }
 
 struct SearchRequest: Equatable {
