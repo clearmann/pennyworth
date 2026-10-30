@@ -163,6 +163,7 @@ final class ResultCellView: NSTableCellView {
         super.init(frame: .zero)
         self.identifier = identifier
         let image = NSImageView()
+        image.imageScaling = .scaleProportionallyDown
         let title = NSTextField(labelWithString: "")
         title.font = .systemFont(ofSize: 15, weight: .medium)
         subtitle.font = .systemFont(ofSize: 12)

@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor final class ClipboardHistoryViewController: NSViewController {
     static let panelSize = NSSize(width: 680, height: 420)
+    private static let imagePreviewPanelHeight: CGFloat = 360
 
     private let model: ClipboardHistoryModel
     private let onRestore: (ClipboardItem) -> Void
@@ -9,6 +10,8 @@ import AppKit
     private let tableView = NSTableView()
     private let status = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
+    private let contentStack = NSStackView()
+    private let imagePreview = ClipboardImagePreviewView()
     private var rendering = false
 
     var onDismiss: (() -> Void)?
@@ -32,11 +35,15 @@ import AppKit
         view = effect
         configureSearch()
         configureTable()
+        contentStack.orientation = .horizontal
+        contentStack.spacing = 0
+        contentStack.addArrangedSubview(scrollView)
+        contentStack.addArrangedSubview(imagePreview)
         status.font = .systemFont(ofSize: 12)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
         status.setAccessibilityIdentifier("clipboard.status")
-        [searchField, scrollView, status].forEach {
+        [searchField, contentStack, status].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             effect.addSubview($0)
         }
@@ -45,10 +52,10 @@ import AppKit
             searchField.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
             searchField.topAnchor.constraint(equalTo: effect.topAnchor, constant: 12),
             searchField.heightAnchor.constraint(equalToConstant: 48),
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
+            contentStack.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            contentStack.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
             status.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
             status.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
             status.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
@@ -107,6 +114,7 @@ import AppKit
         rendering = true
         defer { rendering = false }
         status.stringValue = model.message
+        imagePreview.update(with: model.selectedItem)
         tableView.reloadData()
         if let index = model.visibleItems.firstIndex(where: { $0.id == model.selectedID }) {
             tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
@@ -114,7 +122,8 @@ import AppKit
         } else {
             tableView.deselectAll(nil)
         }
-        onHeightChanged?(106 + CGFloat(min(max(model.visibleItems.count, 1), 7)) * 56)
+        let contentHeight = 106 + CGFloat(min(max(model.visibleItems.count, 1), 7)) * 56
+        onHeightChanged?(imagePreview.isHidden ? contentHeight : max(contentHeight, Self.imagePreviewPanelHeight))
     }
 
     @objc private func restoreSelected() {
@@ -168,6 +177,7 @@ extension ClipboardHistoryViewController: NSTableViewDataSource, NSTableViewDele
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !rendering, model.visibleItems.indices.contains(tableView.selectedRow) else { return }
         model.select(model.visibleItems[tableView.selectedRow].id)
+        render()
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -176,8 +186,13 @@ extension ClipboardHistoryViewController: NSTableViewDataSource, NSTableViewDele
         let identifier = NSUserInterfaceItemIdentifier("ClipboardResultCell")
         let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? ResultCellView)
             ?? ResultCellView(identifier: identifier)
-        cell.configure(result, icon: NSImage(systemSymbolName: result.symbol, accessibilityDescription: nil),
-                       selected: item.id == model.selectedID)
+        let icon: NSImage?
+        if case .image(let image, _) = item.content {
+            icon = image
+        } else {
+            icon = NSImage(systemSymbolName: result.symbol, accessibilityDescription: nil)
+        }
+        cell.configure(result, icon: icon, selected: item.id == model.selectedID)
         return cell
     }
 }
