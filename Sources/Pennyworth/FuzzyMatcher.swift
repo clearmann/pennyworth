@@ -7,12 +7,13 @@ import Foundation
 /// Frecency is applied by the caller as an additive bonus in `0..<1`, so it can
 /// reorder near-ties without ever overtaking a stronger match tier.
 enum FuzzyMatcher {
-    /// Score bands. Each band is 1000 wide and quality rewards stay below 500,
+    /// Score bands are at least 500 apart and quality rewards stay below 500,
     /// so a weaker tier can never outrank a stronger one.
     private enum Tier {
         static let exact: Double = 5000
         static let prefix: Double = 4000
         static let wordStart: Double = 3000
+        static let wordInitials: Double = 2500
         static let substring: Double = 2000
         static let subsequence: Double = 1000
         /// Maximum reward added inside a tier.
@@ -69,6 +70,9 @@ enum FuzzyMatcher {
         }
         if found.isContiguous {
             return Match(base: Tier.substring, quality: reward)
+        }
+        if matchesWordInitials(in: haystack, needle: needle) {
+            return Match(base: Tier.wordInitials, quality: reward)
         }
         return Match(base: Tier.subsequence, quality: reward)
     }
@@ -149,6 +153,17 @@ enum FuzzyMatcher {
         }
 
         return SubsequenceHit(range: first..<(last + 1), longestRun: longestRun)
+    }
+
+    private static func matchesWordInitials(in haystack: [Character], needle: [Character]) -> Bool {
+        var needleIndex = 0
+
+        for (index, character) in haystack.enumerated()
+        where startsWord(in: haystack, at: index) && charactersEqual(character, needle[needleIndex]) {
+            needleIndex += 1
+            if needleIndex == needle.count { return true }
+        }
+        return false
     }
 
     private static func charactersEqual(_ lhs: Character, _ rhs: Character) -> Bool {
