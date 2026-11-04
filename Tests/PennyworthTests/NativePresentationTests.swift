@@ -3,6 +3,25 @@ import AppKit
 import XCTest
 
 final class NativePresentationTests: XCTestCase {
+    @MainActor func testEmptySessionHidesResultsAndCollapsesPanel() throws {
+        _ = NSApplication.shared
+        let name = "PresentationTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let model = LauncherModel(settings: SettingsStore(defaults: defaults),
+                                  usage: UsageStore(defaults: defaults), executor: TestExecutor())
+        let controller = LauncherViewController(model: model)
+        var height: CGFloat?
+        controller.onHeightChanged = { height = $0 }
+        controller.focusSearchField()
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? NSScrollView }.first)
+        XCTAssertTrue(scroll.isHidden)
+        XCTAssertEqual(height, 106)
+        model.updateQuery("=23*17")
+        XCTAssertFalse(scroll.isHidden)
+        XCTAssertEqual(height, 162)
+    }
+
     @MainActor func testSearchViewPresentsResultsAndKeyboardActions() throws {
         _ = NSApplication.shared
         let name = "PresentationTests.\(UUID())"
