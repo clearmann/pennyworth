@@ -1,11 +1,12 @@
 import AppKit
+import Carbon
 
 /// AppKit presentation; search and execution state live in LauncherModel.
 @MainActor final class LauncherViewController: NSViewController {
     static let panelSize = NSSize(width: 680, height: 420)
     private let model: LauncherModel
     private let searchField = NSTextField()
-    private let tableView = NSTableView()
+    private let tableView = LauncherResultsTableView()
     private let status = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let iconCache = NSCache<NSURL, NSImage>()
@@ -153,6 +154,16 @@ extension LauncherViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
         cell.configure(result, icon: icon, selected: result.id == model.selectedID)
         return cell
+    }
+}
+
+private final class LauncherResultsTableView: NSTableView {
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == UInt16(kVK_Return) || event.keyCode == UInt16(kVK_ANSI_KeypadEnter) else {
+            super.keyDown(with: event)
+            return
+        }
+        if let doubleAction { sendAction(doubleAction, to: target) }
     }
 }
 

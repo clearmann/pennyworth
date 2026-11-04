@@ -40,7 +40,7 @@ final class FuzzyMatcherTests: XCTestCase {
     func testConsecutiveHitsBeatScatteredOnes() throws {
         // Compare two hypothetical items where both contain the subsequence.
         let consecutive = AppItem(name: "Safari", url: URL(fileURLWithPath: "/a.app"))
-        let scattered = AppItem(name: "S_a_f_ari", url: URL(fileURLWithPath: "/b.app"))
+        let scattered = AppItem(name: "Sxaxfari", url: URL(fileURLWithPath: "/b.app"))
         let consecutiveScore = try XCTUnwrap(FuzzyMatcher.score(item: consecutive, query: "saf"))
         let scatteredScore = try XCTUnwrap(FuzzyMatcher.score(item: scattered, query: "saf"))
         XCTAssertGreaterThan(consecutiveScore, scatteredScore)
@@ -72,7 +72,7 @@ final class FuzzyMatcherTests: XCTestCase {
 
     func testSubstringBeatsScatteredSubsequence() throws {
         let substring = try XCTUnwrap(FuzzyMatcher.score(item: AppItem(name: "XMonitor", url: URL(fileURLWithPath: "/a.app")), query: "mon"))
-        let subsequence = try XCTUnwrap(FuzzyMatcher.score(item: AppItem(name: "M_x_o_n", url: URL(fileURLWithPath: "/b.app")), query: "mon"))
+        let subsequence = try XCTUnwrap(FuzzyMatcher.score(item: AppItem(name: "Mxoxn", url: URL(fileURLWithPath: "/b.app")), query: "mon"))
         XCTAssertGreaterThan(substring, subsequence)
     }
 
@@ -92,7 +92,7 @@ final class FuzzyMatcherTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(substring, 2000)
         XCTAssertLessThan(substring, 2500)
 
-        let subsequence = try XCTUnwrap(FuzzyMatcher.score(item: AppItem(name: "M_x_o_n_i_t_o_r", url: URL(fileURLWithPath: "/e.app")), query: "Monitor"))
+        let subsequence = try XCTUnwrap(FuzzyMatcher.score(item: AppItem(name: "Mxoxnxixtxoxr", url: URL(fileURLWithPath: "/e.app")), query: "Monitor"))
         XCTAssertGreaterThanOrEqual(subsequence, 1000)
         XCTAssertLessThan(subsequence, 1500)
     }
@@ -104,7 +104,7 @@ final class FuzzyMatcherTests: XCTestCase {
             FuzzyMatcher.score(item: AppItem(name: String(repeating: "x", count: 100) + "mon" + String(repeating: "y", count: 100), url: URL(fileURLWithPath: "/a.app")), query: "mon")
         )
         let bestSubsequence = try XCTUnwrap(
-            FuzzyMatcher.score(item: AppItem(name: "m-o-n" + String(repeating: "z", count: 1), url: URL(fileURLWithPath: "/b.app")), query: "mon")
+            FuzzyMatcher.score(item: AppItem(name: "mxon" + String(repeating: "z", count: 1), url: URL(fileURLWithPath: "/b.app")), query: "mon")
         )
         XCTAssertGreaterThan(worstSubstring, bestSubsequence)
     }
