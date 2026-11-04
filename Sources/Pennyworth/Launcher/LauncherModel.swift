@@ -65,9 +65,13 @@ import os
         }
         switch request.intent {
         case .applications:
+            guard !request.query.isEmpty else {
+                publish([], message: SearchSnapshot.empty.message)
+                return
+            }
             var results = ApplicationSearchProvider.results(items: items, query: request.query,
                                                            usage: usage, enabled: settings.settings.rememberUsage)
-            if !request.query.isEmpty, bookmarks?.preferences.includeInDefaultResults == true {
+            if bookmarks?.preferences.includeInDefaultResults == true {
                 results += bookmarkResults(request.query)
             }
             let fallback = settings.settings.fallbackOnlyWhenNoResults && !results.isEmpty ? [] : webResults(request.query)

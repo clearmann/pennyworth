@@ -2,6 +2,23 @@
 import XCTest
 
 final class LauncherModelTests: XCTestCase {
+    @MainActor func testEmptyQueryDoesNotPublishDefaultApplications() throws {
+        let name = "LauncherTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let model = LauncherModel(settings: SettingsStore(defaults: defaults),
+                                  usage: UsageStore(defaults: defaults), executor: TestExecutor())
+        model.setApplications([AppItem(name: "Safari", url: URL(fileURLWithPath: "/Safari.app"))])
+        model.beginSession()
+        XCTAssertTrue(model.snapshot.results.isEmpty)
+        XCTAssertNil(model.selectedID)
+        model.updateQuery("Safari")
+        XCTAssertEqual(model.snapshot.results.first?.title, "Safari")
+        model.updateQuery("")
+        XCTAssertTrue(model.snapshot.results.isEmpty)
+        XCTAssertNil(model.selectedID)
+    }
+
     @MainActor func testFailurePreservesSelectionAndNewSessionIgnoresOldCompletion() throws {
         let name = "LauncherTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

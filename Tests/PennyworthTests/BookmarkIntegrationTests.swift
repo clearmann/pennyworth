@@ -34,7 +34,7 @@ final class BookmarkIntegrationTests: XCTestCase {
         XCTAssertTrue(model.snapshot.results[1].id.hasPrefix("bookmark:"))
         XCTAssertTrue(model.snapshot.results[2].id.hasPrefix("web:"))
         model.updateQuery("")
-        XCTAssertEqual(model.snapshot.results.count, 1)
+        XCTAssertTrue(model.snapshot.results.isEmpty)
         preferences.includeInDefaultResults = false
         try bookmarks.updatePreferences(preferences)
         model.updateQuery("github")

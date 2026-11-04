@@ -154,7 +154,7 @@ private final class SettingsPageHost: NSView {
         bookmarkInDefault.setAccessibilityLabel("默认结果中的网页书签选项")
         let bookmarkLink = NSButton(title: "设置书签…", target: self, action: #selector(openBookmarks))
         addPage("默认结果", description: "选择直接输入关键词时显示的内容。", controls: [
-            note("应用始终包含在默认结果中。"),
+            note("输入关键词后始终搜索应用；空输入时不显示结果。"),
             NSStackView(views: [defaultBookmarks, bookmarkLink]),
             note("文件通过空格、open 或 find 搜索。关闭默认书签展示后，仍可使用 bm 搜索。"),
             row("网页搜索兜底", fallback),

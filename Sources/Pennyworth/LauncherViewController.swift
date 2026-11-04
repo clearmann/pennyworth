@@ -104,11 +104,12 @@ import Carbon
         searchField.isEditable = !model.isExecuting
         status.stringValue = model.isExecuting ? "正在执行…" : model.snapshot.message
         tableView.reloadData()
+        scrollView.isHidden = model.snapshot.results.isEmpty
         if let index = model.snapshot.results.firstIndex(where: { $0.id == model.selectedID }) {
             tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             tableView.scrollRowToVisible(index)
         } else { tableView.deselectAll(nil) }
-        onHeightChanged?(106 + CGFloat(min(max(model.snapshot.results.count, 1), 7)) * 56)
+        onHeightChanged?(106 + CGFloat(min(model.snapshot.results.count, 7)) * 56)
     }
 
     @objc private func execute() { model.executeSelected() }
