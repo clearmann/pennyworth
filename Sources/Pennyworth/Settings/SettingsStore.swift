@@ -128,10 +128,12 @@ struct LauncherSettings: Codable, Equatable {
     let rememberUsage: Bool
     let fallbackOnlyWhenNoResults: Bool
     let clipboardHotKey: HotKeyPreset
+    let language: AppLanguage
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
          rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
-         fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC) {
+         fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC,
+         language: AppLanguage = .system) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
@@ -139,10 +141,11 @@ struct LauncherSettings: Codable, Equatable {
         self.rememberUsage = rememberUsage
         self.fallbackOnlyWhenNoResults = fallbackOnlyWhenNoResults
         self.clipboardHotKey = clipboardHotKey
+        self.language = language
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey
+        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey, language
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +158,7 @@ struct LauncherSettings: Codable, Equatable {
         rememberUsage = try values.decode(Bool.self, forKey: .rememberUsage)
         fallbackOnlyWhenNoResults = try values.decodeIfPresent(Bool.self, forKey: .fallbackOnlyWhenNoResults) ?? false
         clipboardHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .clipboardHotKey) ?? .optionCommandC
+        language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
     }
 
     static let defaults = LauncherSettings(hotKey: .optionSpace, searchDirectories: [],
@@ -176,7 +180,7 @@ final class SettingsStore {
                 settings = value
             } catch {
                 settings = .defaults
-                warning = "设置无法读取，已使用默认值。请在设置中重新保存。"
+                warning = L10n.tr("settings.error.corrupted")
             }
         } else {
             settings = .defaults
@@ -222,8 +226,8 @@ enum SettingsError: LocalizedError {
     case invalidDirectories, invalidHotKeys
     var errorDescription: String? {
         switch self {
-        case .invalidDirectories: return "请选择有效的绝对目录路径（最多 32 个）。"
-        case .invalidHotKeys: return "请选择有效的快捷键组合。"
+        case .invalidDirectories: return L10n.tr("settings.error.invalid_directories")
+        case .invalidHotKeys: return L10n.tr("settings.error.invalid_hotkeys")
         }
     }
 }

@@ -82,9 +82,9 @@ import AppKit
         searchField.isBezeled = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.placeholderString = "搜索剪贴板历史…"
+        searchField.placeholderString = L10n.tr("clipboard.search_placeholder")
         searchField.delegate = self
-        searchField.setAccessibilityLabel("剪贴板历史搜索")
+        searchField.setAccessibilityLabel(L10n.tr("clipboard.search_accessibility"))
         searchField.setAccessibilityIdentifier("clipboard.query")
     }
 
@@ -102,7 +102,7 @@ import AppKit
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(restoreSelected)
-        tableView.setAccessibilityLabel("剪贴板历史结果")
+        tableView.setAccessibilityLabel(L10n.tr("clipboard.results_accessibility"))
         scrollView.documentView = tableView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true

@@ -24,9 +24,9 @@ import Foundation
     }
 
     var message: String {
-        if items.isEmpty { return "暂无剪贴板历史" }
-        if visibleItems.isEmpty { return "没有匹配的剪贴板记录" }
-        return "↑↓ 选择 · ↵ 恢复到剪贴板 · Esc 关闭"
+        if items.isEmpty { return L10n.tr("clipboard.empty") }
+        if visibleItems.isEmpty { return L10n.tr("clipboard.no_matches") }
+        return L10n.tr("clipboard.help")
     }
 
     func updateQuery(_ value: String) {

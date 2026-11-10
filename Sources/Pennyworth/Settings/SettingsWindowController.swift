@@ -5,7 +5,11 @@ private final class SettingsPageHost: NSView {
 }
 
 @MainActor final class SettingsWindowController: NSWindowController {
-    static let pageTitles = ["通用", "默认结果", "文件搜索", "网页搜索", "网页书签", "计算器"]
+    static var pageTitles: [String] {
+        ["general", "default_results", "file_search", "web_search", "bookmarks", "calculator"].map {
+            L10n.tr("settings.page.\($0)")
+        }
+    }
     private let store: SettingsStore
     private let usage: UsageStore
     private let bookmarks: BookmarkStore?
@@ -13,9 +17,10 @@ private final class SettingsPageHost: NSView {
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
     private let engine = NSPopUpButton()
+    private let languagePopup = NSPopUpButton()
     private let webSearchSettings = WebSearchSettingsView()
     private let fallback = NSPopUpButton()
-    private let remember = NSButton(checkboxWithTitle: "记住应用使用频率", target: nil, action: nil)
+    private let remember = NSButton(checkboxWithTitle: L10n.tr("settings.remember_usage"), target: nil, action: nil)
     private let directories = NSPopUpButton()
     private let feedback = NSTextField(wrappingLabelWithString: "")
     private let pageHost = SettingsPageHost()
@@ -23,15 +28,15 @@ private final class SettingsPageHost: NSView {
     private var navigation: [NSButton] = []
     private var pageBottom: NSLayoutConstraint?
     private var paths: [String] = []
-    private(set) var selectedPageTitle = "通用"
-    private let bookmarkEnabled = NSButton(checkboxWithTitle: "搜索 Chrome 书签", target: nil, action: nil)
-    private let defaultBookmarks = NSButton(checkboxWithTitle: "网页书签", target: nil, action: nil)
-    private let bookmarkInDefault = NSButton(checkboxWithTitle: "在默认搜索结果中显示书签", target: nil, action: nil)
-    private let matchTitle = NSButton(checkboxWithTitle: "标题", target: nil, action: nil)
-    private let matchURL = NSButton(checkboxWithTitle: "网址", target: nil, action: nil)
-    private let matchFolders = NSButton(checkboxWithTitle: "文件夹名称", target: nil, action: nil)
+    private(set) var selectedPageTitle = L10n.tr("settings.page.general")
+    private let bookmarkEnabled = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.enabled"), target: nil, action: nil)
+    private let defaultBookmarks = NSButton(checkboxWithTitle: L10n.tr("settings.page.bookmarks"), target: nil, action: nil)
+    private let bookmarkInDefault = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.include_default"), target: nil, action: nil)
+    private let matchTitle = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_title"), target: nil, action: nil)
+    private let matchURL = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_url"), target: nil, action: nil)
+    private let matchFolders = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_folders"), target: nil, action: nil)
     private let profileList = NSStackView()
-    private let bookmarkStatus = NSTextField(wrappingLabelWithString: "尚未导入书签。")
+    private let bookmarkStatus = NSTextField(wrappingLabelWithString: L10n.tr("settings.bookmarks.not_imported"))
     private var bookmarkButtons: [NSButton] = []
     private var bookmarkBusy = false
 
@@ -43,7 +48,7 @@ private final class SettingsPageHost: NSView {
         self.apply = apply
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        window.title = "Pennyworth 设置"
+        window.title = L10n.tr("settings.window_title")
         window.minSize = NSSize(width: 780, height: 580)
         window.isReleasedWhenClosed = false
         super.init(window: window)
@@ -59,25 +64,28 @@ private final class SettingsPageHost: NSView {
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
+        languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
         webSearchSettings.reload(value.webSearches)
         fallback.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
         remember.state = value.rememberUsage ? .on : .off
         paths = value.searchDirectories
         reloadDirectories()
-        feedback.stringValue = store.warning ?? "常规设置点击保存生效；书签选项与导入操作立即保存。"
+        feedback.stringValue = store.warning ?? L10n.tr("settings.save_help")
         super.showWindow(sender)
         reloadBookmarks()
     }
 
     private func configure() {
         guard let content = window?.contentView else { return }
-        hotKeyRecorder.setAccessibilityLabel("全局热键")
-        clipboardHotKeyRecorder.setAccessibilityLabel("剪贴板历史热键")
+        hotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.hotkey"))
+        clipboardHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.clipboard_hotkey"))
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
-        fallback.addItems(withTitles: ["始终显示在最后", "仅无本地匹配时显示"])
-        engine.setAccessibilityLabel("默认搜索引擎")
-        fallback.setAccessibilityLabel("网页搜索兜底")
-        directories.setAccessibilityLabel("文件搜索目录")
+        languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
+        languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
+        fallback.addItems(withTitles: [L10n.tr("settings.fallback.always"), L10n.tr("settings.fallback.no_results")])
+        engine.setAccessibilityLabel(L10n.tr("settings.search_engine"))
+        fallback.setAccessibilityLabel(L10n.tr("settings.web_fallback"))
+        directories.setAccessibilityLabel(L10n.tr("settings.search_directories"))
         directories.widthAnchor.constraint(equalToConstant: 320).isActive = true
         feedback.font = .systemFont(ofSize: 12)
         feedback.textColor = .secondaryLabelColor
@@ -99,7 +107,7 @@ private final class SettingsPageHost: NSView {
             button.alignment = .left
             button.image = NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)
             button.imagePosition = .imageLeading
-            button.setAccessibilityLabel("设置页面：\(title)")
+            button.setAccessibilityLabel(L10n.format("settings.page_accessibility", title))
             button.widthAnchor.constraint(equalToConstant: 156).isActive = true
             button.heightAnchor.constraint(equalToConstant: 36).isActive = true
             navigation.append(button)
@@ -114,7 +122,7 @@ private final class SettingsPageHost: NSView {
         pageHost.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = pageHost
         content.addSubview(scroll)
-        let save = NSButton(title: "保存", target: self, action: #selector(saveSettings))
+        let save = NSButton(title: L10n.tr("settings.save"), target: self, action: #selector(saveSettings))
         save.keyEquivalent = "\r"
         let footer = NSStackView(views: [feedback, save])
         footer.spacing = 16
@@ -138,69 +146,68 @@ private final class SettingsPageHost: NSView {
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -18),
         ])
         buildPages()
-        selectPage("通用")
+        selectPage(L10n.tr("settings.page.general"))
     }
 
     private func buildPages() {
-        addPage("通用", description: "设置唤出方式与应用使用记录。", controls: [
-            row("全局热键", hotKeyRecorder),
-            row("剪贴板历史热键", clipboardHotKeyRecorder),
+        addPage(L10n.tr("settings.page.general"), description: L10n.tr("settings.general.description"), controls: [
+            row(L10n.tr("settings.language"), languagePopup),
+            row(L10n.tr("settings.hotkey"), hotKeyRecorder),
+            row(L10n.tr("settings.clipboard_hotkey"), clipboardHotKeyRecorder),
             remember,
-            NSButton(title: "清除使用记录", target: self, action: #selector(clearHistory)),
+            NSButton(title: L10n.tr("settings.clear_usage"), target: self, action: #selector(clearHistory)),
         ])
         defaultBookmarks.target = self
         defaultBookmarks.action = #selector(bookmarkPreferenceChanged(_:))
-        defaultBookmarks.setAccessibilityLabel("默认结果中的网页书签")
-        bookmarkInDefault.setAccessibilityLabel("默认结果中的网页书签选项")
-        let bookmarkLink = NSButton(title: "设置书签…", target: self, action: #selector(openBookmarks))
-        addPage("默认结果", description: "选择直接输入关键词时显示的内容。", controls: [
-            note("输入关键词后始终搜索应用；空输入时不显示结果。"),
+        defaultBookmarks.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
+        bookmarkInDefault.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
+        let bookmarkLink = NSButton(title: L10n.tr("settings.bookmarks.configure"), target: self, action: #selector(openBookmarks))
+        addPage(L10n.tr("settings.page.default_results"), description: L10n.tr("settings.default_results.description"), controls: [
+            note(L10n.tr("settings.default_results.note")),
             NSStackView(views: [defaultBookmarks, bookmarkLink]),
-            note("文件通过空格、open 或 find 搜索。关闭默认书签展示后，仍可使用 bm 搜索。"),
-            row("网页搜索兜底", fallback),
+            note(L10n.tr("settings.default_results.bookmarks_note")),
+            row(L10n.tr("settings.web_fallback"), fallback),
         ])
-        addPage("文件搜索", description: "选择文件名搜索覆盖的目录。", controls: [
-            row("文件搜索目录", directories),
-            NSStackView(views: [NSButton(title: "添加目录…", target: self, action: #selector(addDirectory)),
-                               NSButton(title: "移除所选", target: self, action: #selector(removeDirectory))]),
-            note("文件搜索仅覆盖所选目录的 Spotlight 索引。建议添加文稿、桌面或下载。"),
-            note("使用 open 打开文件，使用 find 在 Finder 中显示文件。"),
+        addPage(L10n.tr("settings.page.file_search"), description: L10n.tr("settings.file_search.description"), controls: [
+            row(L10n.tr("settings.search_directories"), directories),
+            NSStackView(views: [NSButton(title: L10n.tr("settings.add_directory"), target: self, action: #selector(addDirectory)),
+                               NSButton(title: L10n.tr("settings.remove_directory"), target: self, action: #selector(removeDirectory))]),
+            note(L10n.tr("settings.file_search.spotlight_note")),
+            note(L10n.tr("settings.file_search.commands_note")),
         ])
-        addPage("网页搜索", description: "在浏览器中执行搜索，输入时不会发送网络请求。", controls: [
-            row("默认搜索引擎", engine),
+        addPage(L10n.tr("settings.page.web_search"), description: L10n.tr("settings.web_search.description"), controls: [
+            row(L10n.tr("settings.search_engine"), engine),
             webSearchSettings,
-            note("输入“关键词 搜索内容”后回车。{query} 会被替换为编码后的搜索内容；内置项只能启停，自定义项可编辑。"),
+            note(L10n.tr("settings.web_search.note")),
         ])
-        if let page = pages["网页搜索"] {
+        if let page = pages[L10n.tr("settings.page.web_search")] {
             webSearchSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
         }
         for button in [bookmarkEnabled, bookmarkInDefault, matchTitle, matchURL, matchFolders] {
             button.target = self
             button.action = #selector(bookmarkPreferenceChanged(_:))
         }
-        defaultBookmarks.setAccessibilityLabel("默认结果中的网页书签")
-        bookmarkInDefault.setAccessibilityLabel("默认结果中的网页书签")
         profileList.orientation = .vertical
         profileList.alignment = .leading
         profileList.spacing = 8
-        let detect = NSButton(title: "检测个人资料", target: self, action: #selector(detectProfiles))
-        let choose = NSButton(title: "选择 Chrome 数据目录…", target: self, action: #selector(chooseChromeDirectory))
-        let refresh = NSButton(title: "立即导入 / 刷新", target: self, action: #selector(refreshBookmarks))
-        let clear = NSButton(title: "清除已导入书签…", target: self, action: #selector(clearBookmarks))
+        let detect = NSButton(title: L10n.tr("settings.bookmarks.detect"), target: self, action: #selector(detectProfiles))
+        let choose = NSButton(title: L10n.tr("settings.bookmarks.choose_directory"), target: self, action: #selector(chooseChromeDirectory))
+        let refresh = NSButton(title: L10n.tr("settings.bookmarks.import_refresh"), target: self, action: #selector(refreshBookmarks))
+        let clear = NSButton(title: L10n.tr("settings.bookmarks.clear"), target: self, action: #selector(clearBookmarks))
         bookmarkButtons = [detect, choose, refresh, clear]
         bookmarkStatus.font = .systemFont(ofSize: 12)
         bookmarkStatus.textColor = .secondaryLabelColor
-        addPage("网页书签", description: "从 Chrome 导入书签。数据仅保存在本机，不修改浏览器中的原始书签。", controls: [
-            bookmarkEnabled, row("Chrome 个人资料", profileList),
+        addPage(L10n.tr("settings.page.bookmarks"), description: L10n.tr("settings.bookmarks.description"), controls: [
+            bookmarkEnabled, row(L10n.tr("settings.bookmarks.profiles"), profileList),
             NSStackView(views: [detect, choose]), refresh, bookmarkStatus,
-            bookmarkInDefault, row("专用关键词", NSTextField(labelWithString: "bm")),
-            row("匹配范围", NSStackView(views: [matchTitle, matchURL, matchFolders])),
-            row("打开方式", NSTextField(labelWithString: "使用系统默认浏览器")),
-            clear, note("书签选项立即保存。清除只删除 Pennyworth 的副本，不影响 Chrome。"),
+            bookmarkInDefault, row(L10n.tr("settings.bookmarks.keyword"), NSTextField(labelWithString: "bm")),
+            row(L10n.tr("settings.bookmarks.match_scope"), NSStackView(views: [matchTitle, matchURL, matchFolders])),
+            row(L10n.tr("settings.bookmarks.open_with"), NSTextField(labelWithString: L10n.tr("settings.bookmarks.default_browser"))),
+            clear, note(L10n.tr("settings.bookmarks.note")),
         ])
-        addPage("计算器", description: "直接输入表达式，按回车复制计算结果。", controls: [
-            note("支持四则运算、小数、括号和一元正负号。"),
-            note("例如：23 * 17、(12 + 8) / 4。使用 = 前缀可明确进入计算模式。"),
+        addPage(L10n.tr("settings.page.calculator"), description: L10n.tr("settings.calculator.description"), controls: [
+            note(L10n.tr("settings.calculator.syntax_note")),
+            note(L10n.tr("settings.calculator.example_note")),
         ])
         // Bookmark state is loaded after the window is first presented.
     }
@@ -225,7 +232,7 @@ private final class SettingsPageHost: NSView {
         for view in stack.arrangedSubviews where view is NSTextField {
             view.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
         }
-        if title == "网页书签" {
+        if title == L10n.tr("settings.page.bookmarks") {
             bookmarkStatus.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             profileList.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -128).isActive = true
         }
@@ -244,7 +251,7 @@ private final class SettingsPageHost: NSView {
     }
 
     @objc private func navigate(_ sender: NSButton) { selectPage(sender.title) }
-    @objc private func openBookmarks() { selectPage("网页书签") }
+    @objc private func openBookmarks() { selectPage(L10n.tr("settings.page.bookmarks")) }
 
     private func row(_ title: String, _ control: NSView) -> NSView {
         let label = NSTextField(labelWithString: title)
@@ -264,7 +271,7 @@ private final class SettingsPageHost: NSView {
 
     private func reloadDirectories() {
         directories.removeAllItems()
-        directories.addItems(withTitles: paths.isEmpty ? ["未配置（不搜索文件）"] : paths)
+        directories.addItems(withTitles: paths.isEmpty ? [L10n.tr("settings.no_directories")] : paths)
     }
 
     private func reloadBookmarks() {
@@ -280,13 +287,14 @@ private final class SettingsPageHost: NSView {
         }
         for view in profileList.arrangedSubviews { profileList.removeArrangedSubview(view); view.removeFromSuperview() }
         guard let bookmarks else {
-            profileList.addArrangedSubview(note("书签服务不可用。"))
+            profileList.addArrangedSubview(note(L10n.tr("settings.bookmarks.unavailable")))
             return
         }
-        if bookmarks.profiles.isEmpty { profileList.addArrangedSubview(note("尚未检测。请选择要导入的 Chrome 个人资料。")) }
+        if bookmarks.profiles.isEmpty { profileList.addArrangedSubview(note(L10n.tr("settings.bookmarks.not_detected"))) }
         for profile in bookmarks.profiles {
             let count = bookmarks.snapshots[profile.id]?.entries.count
-            let button = NSButton(checkboxWithTitle: "\(profile.name) · \(count.map { "\($0) 条 · 已导入" } ?? "未导入")",
+            let status = count.map { L10n.format("settings.bookmarks.imported_count", $0) } ?? L10n.tr("settings.bookmarks.profile_not_imported")
+            let button = NSButton(checkboxWithTitle: "\(profile.name) · \(status)",
                                   target: self, action: #selector(profileChanged(_:)))
             button.identifier = NSUserInterfaceItemIdentifier(profile.id)
             button.toolTip = "\(profile.name)\n\(profile.id)"
@@ -298,11 +306,14 @@ private final class SettingsPageHost: NSView {
         }
         let snapshots = bookmarks.snapshots.values
         if bookmarkBusy {
-            bookmarkStatus.stringValue = "正在读取 Chrome 书签…"
+            bookmarkStatus.stringValue = L10n.tr("settings.bookmarks.reading")
         } else if let date = snapshots.map(\.importedAt).max() {
-            bookmarkStatus.stringValue = "上次成功导入：\(date.formatted(date: .abbreviated, time: .shortened))\n已导入 \(snapshots.reduce(0) { $0 + $1.entries.count }) 条，跳过 \(snapshots.reduce(0) { $0 + $1.skippedCount }) 条不支持的网址。"
+            let imported = snapshots.reduce(0) { $0 + $1.entries.count }
+            let skipped = snapshots.reduce(0) { $0 + $1.skippedCount }
+            bookmarkStatus.stringValue = L10n.format("settings.bookmarks.import_status",
+                                                      date.formatted(date: .abbreviated, time: .shortened), imported, skipped)
         } else {
-            bookmarkStatus.stringValue = "尚未导入书签。勾选个人资料后，点击立即导入 / 刷新。"
+            bookmarkStatus.stringValue = L10n.tr("settings.bookmarks.import_help")
         }
         if let warning = bookmarks.warning { bookmarkStatus.stringValue += "\n\(warning)" }
     }
@@ -317,7 +328,7 @@ private final class SettingsPageHost: NSView {
         else if sender === matchFolders { prefs.matchFolders = sender.state == .on }
         do {
             try bookmarks.updatePreferences(prefs)
-            feedback.stringValue = "书签选项已保存。常规设置仍需点击保存。"
+            feedback.stringValue = L10n.tr("settings.bookmarks.preference_saved")
         } catch { feedback.stringValue = error.localizedDescription }
         reloadBookmarks()
     }
@@ -336,9 +347,9 @@ private final class SettingsPageHost: NSView {
         Task { [weak self] in
             do {
                 try await operation(bookmarks)
-                self?.feedback.stringValue = "书签操作完成，数据已保存。"
+                self?.feedback.stringValue = L10n.tr("settings.bookmarks.operation_succeeded")
             } catch {
-                self?.feedback.stringValue = "书签操作失败：\(error.localizedDescription)。保留上次成功导入的数据。"
+                self?.feedback.stringValue = L10n.format("settings.bookmarks.operation_failed", error.localizedDescription)
             }
             self?.bookmarkBusy = false
             self?.reloadBookmarks()
@@ -358,7 +369,7 @@ private final class SettingsPageHost: NSView {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = "请选择包含 Default 或 Profile 子目录的 Chrome 数据目录。"
+        panel.message = L10n.tr("settings.bookmarks.choose_message")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             self?.runBookmarkOperation { try await $0.discoverProfiles(root: url) }
@@ -368,15 +379,15 @@ private final class SettingsPageHost: NSView {
     @objc private func clearBookmarks() {
         guard let window, let bookmarks else { return }
         let alert = NSAlert()
-        alert.messageText = "清除已导入书签？"
-        alert.informativeText = "只删除 Pennyworth 保存的书签副本，不会修改 Chrome。之后可以重新导入。"
-        alert.addButton(withTitle: "取消")
-        alert.addButton(withTitle: "清除")
+        alert.messageText = L10n.tr("settings.bookmarks.clear_title")
+        alert.informativeText = L10n.tr("settings.bookmarks.clear_message")
+        alert.addButton(withTitle: L10n.tr("common.cancel"))
+        alert.addButton(withTitle: L10n.tr("common.clear"))
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else { return }
             do {
                 try bookmarks.clearImportedData()
-                self?.feedback.stringValue = "已清除 Pennyworth 中的书签副本。"
+                self?.feedback.stringValue = L10n.tr("settings.bookmarks.cleared")
             } catch { self?.feedback.stringValue = error.localizedDescription }
             self?.reloadBookmarks()
         }
@@ -388,7 +399,7 @@ private final class SettingsPageHost: NSView {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "添加"
+        panel.prompt = L10n.tr("common.add")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self else { return }
             self.paths = Array(Set(self.paths + panel.urls.map { $0.standardizedFileURL.path })).sorted()
@@ -404,7 +415,7 @@ private final class SettingsPageHost: NSView {
 
     @objc private func clearHistory() {
         usage.clear()
-        feedback.stringValue = "使用记录已清除。"
+        feedback.stringValue = L10n.tr("settings.usage_cleared")
     }
 
     @objc private func saveSettings() {
@@ -414,10 +425,12 @@ private final class SettingsPageHost: NSView {
                                      rememberUsage: remember.state == .on,
                                      webSearches: webSearchSettings.definitions,
                                      fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
-                                     clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC)
+                                     clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
+                                     language: AppLanguage.allCases[languagePopup.indexOfSelectedItem])
+        let languageChanged = value.language != store.settings.language
         do {
             try apply(value)
-            feedback.stringValue = "设置已保存。"
+            feedback.stringValue = languageChanged ? L10n.tr("settings.restart_required") : L10n.tr("settings.saved")
         } catch {
             feedback.stringValue = error.localizedDescription
         }

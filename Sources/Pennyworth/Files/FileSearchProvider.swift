@@ -63,7 +63,7 @@ final class FileSearchProvider {
     }
 
     func search(query: String, scopes: [URL]) async -> FileSearchOutcome {
-        guard query.count <= 512 else { return .failed("输入过长，最多 512 个字符") }
+        guard query.count <= 512 else { return .failed(L10n.tr("search.error.too_long")) }
         let scopes = Self.normalizedScopes(scopes)
         guard !scopes.isEmpty else { return .notConfigured }
         guard let predicate = Self.predicate(for: query) else { return .emptyQuery }
@@ -229,11 +229,11 @@ final class SystemMetadataQuery: FileMetadataQuerying, @unchecked Sendable {
 
         guard query.start() else {
             finish(throwing: NSError(domain: "Pennyworth.Spotlight", code: 1,
-                                    userInfo: [NSLocalizedDescriptionKey: "Spotlight 查询无法启动，请稍后重试。"])); return
+                                    userInfo: [NSLocalizedDescriptionKey: L10n.tr("file_search.error.start")])); return
         }
         let deadline = DispatchWorkItem { [weak self] in
             self?.finish(throwing: NSError(domain: "Pennyworth.Spotlight", code: 2,
-                                          userInfo: [NSLocalizedDescriptionKey: "Spotlight 搜索超时，请缩小目录范围或检查索引。"]))
+                                          userInfo: [NSLocalizedDescriptionKey: L10n.tr("file_search.error.timeout")]))
         }
         timeout = deadline
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: deadline)

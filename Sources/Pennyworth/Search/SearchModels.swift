@@ -47,5 +47,7 @@ struct SearchSnapshot: Equatable {
     let message: String
     let isLoading: Bool
 
-    static let empty = SearchSnapshot(results: [], message: "输入应用名称，或按空格搜索文件", isLoading: false)
+    static var empty: SearchSnapshot {
+        SearchSnapshot(results: [], message: L10n.tr("launcher.empty"), isLoading: false)
+    }
 }

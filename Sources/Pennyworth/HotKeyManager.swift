@@ -7,7 +7,7 @@ enum HotKeyError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .registrationFailed(let status):
-            return "无法注册热键（OSStatus \(status)）。请尝试其他组合，原热键保持不变。"
+            return L10n.format("hotkey.error.registration", status)
         }
     }
 }

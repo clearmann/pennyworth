@@ -6,7 +6,7 @@ import Carbon
     private var originalBinding: HotKeyPreset?
     private(set) var isRecording = false
     private let label = NSTextField(labelWithString: "")
-    private let hint = NSTextField(labelWithString: "点击后按下快捷键")
+    private let hint = NSTextField(labelWithString: L10n.tr("hotkey.click_to_record"))
 
     init(binding: HotKeyPreset?) {
         self.binding = binding
@@ -33,7 +33,7 @@ import Carbon
         ])
         updateDisplay()
         setAccessibilityRole(.button)
-        setAccessibilityLabel("快捷键录入")
+        setAccessibilityLabel(L10n.tr("hotkey.recorder_accessibility"))
     }
 
     @available(*, unavailable)
@@ -63,7 +63,7 @@ import Carbon
     func beginRecording() {
         originalBinding = binding
         isRecording = true
-        hint.stringValue = "按下快捷键，Esc 取消"
+        hint.stringValue = L10n.tr("hotkey.press_or_cancel")
         layer?.borderColor = NSColor.controlAccentColor.cgColor
     }
 
@@ -82,7 +82,7 @@ import Carbon
             return true
         }
         guard modifiers != 0 || HotKeyPreset.supportsWithoutModifier(keyCode) else {
-            hint.stringValue = "快捷键必须包含 ⌘、⌥、⌃ 或 ⇧"
+            hint.stringValue = L10n.tr("hotkey.modifier_required")
             return false
         }
         binding = .custom(keyCode: keyCode, modifiers: modifiers)
@@ -98,8 +98,8 @@ import Carbon
     }
 
     private func updateDisplay() {
-        label.stringValue = binding?.title ?? "未设置"
-        if !isRecording { hint.stringValue = "点击后按下快捷键" }
+        label.stringValue = binding?.title ?? L10n.tr("hotkey.not_set")
+        if !isRecording { hint.stringValue = L10n.tr("hotkey.click_to_record") }
         layer?.borderColor = NSColor.separatorColor.cgColor
     }
 

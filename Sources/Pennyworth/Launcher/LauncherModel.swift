@@ -61,7 +61,7 @@ import os
         searchTask = nil
         selectedID = nil
         guard let request = QueryParser.parse(raw, webSearches: settings.settings.webSearches) else {
-            publish([], message: "输入过长，最多 512 个字符"); return
+            publish([], message: L10n.tr("search.error.too_long")); return
         }
         switch request.intent {
         case .applications:
@@ -75,23 +75,23 @@ import os
                 results += bookmarkResults(request.query)
             }
             let fallback = settings.settings.fallbackOnlyWhenNoResults && !results.isEmpty ? [] : webResults(request.query)
-            publish(results + fallback, message: "↑↓ 选择 · ↵ 打开 · bm 搜书签 · 空格搜文件 · ⌘, 设置")
+            publish(results + fallback, message: L10n.tr("launcher.help"))
         case .bookmarks:
             guard let bookmarks, bookmarks.preferences.enabled else {
-                publish([], message: "书签搜索未启用，请在设置的网页书签中启用并导入"); return
+                publish([], message: L10n.tr("launcher.bookmarks_disabled")); return
             }
             let results = bookmarkResults(request.query)
-            publish(results, message: results.isEmpty ? "没有匹配书签，请检查来源选择或在设置中导入 / 刷新" : "最多显示 50 项 · ↵ 使用默认浏览器打开")
+            publish(results, message: results.isEmpty ? L10n.tr("launcher.bookmarks_empty") : L10n.tr("launcher.bookmarks_help"))
         case .calculator:
             do {
-                publish(try CalculatorProvider.result(for: request).map { [$0] } ?? [], message: "↵ 复制计算结果")
+                publish(try CalculatorProvider.result(for: request).map { [$0] } ?? [], message: L10n.tr("launcher.calculator_help"))
             } catch {
                 publish(request.explicitCalculation ? [] : webResults(request.query),
-                        message: request.explicitCalculation ? error.localizedDescription : "继续输入算式，或回车网页搜索")
+                        message: request.explicitCalculation ? error.localizedDescription : L10n.tr("launcher.calculator_incomplete"))
             }
         case .web(let definition):
             publish(WebSearchProvider.result(for: request.query, definition: definition).map { [$0] } ?? [],
-                    message: "输入关键词，回车后才会打开浏览器")
+                    message: L10n.tr("launcher.web_search_help"))
         case .fileSearch(let action):
             searchFiles(request.query, action: action)
         }
@@ -114,10 +114,10 @@ import os
     private func searchFiles(_ query: String, action: FileAction) {
         let scopes = settings.settings.searchDirectories.map { URL(fileURLWithPath: $0) }
         guard !scopes.isEmpty else {
-            publish([], message: "尚未选择搜索目录，请按 ⌘, 打开设置添加目录"); return
+            publish([], message: L10n.tr("launcher.files_not_configured")); return
         }
-        guard !query.isEmpty else { publish([], message: "请输入文件名"); return }
-        publish([], message: "正在搜索文件…", loading: true)
+        guard !query.isEmpty else { publish([], message: L10n.tr("launcher.file_query_empty")); return }
+        publish([], message: L10n.tr("launcher.files_searching"), loading: true)
         let token = generation
         searchTask = Task { [weak self, fileSearch] in
             do { try await Task.sleep(nanoseconds: 120_000_000) } catch { return }
@@ -125,11 +125,12 @@ import os
             guard let self, self.active, self.generation == token, !Task.isCancelled else { return }
             switch outcome {
             case .results(let hits):
+                let actionTitle = L10n.tr(action == .open ? "launcher.action.open" : "launcher.action.reveal")
                 self.publish(hits.map { $0.searchResult(action: action) },
-                             message: hits.isEmpty ? "没有匹配；请检查目录与 Spotlight 索引" : "最多显示 50 项 · ↵ \(action == .open ? "打开" : "在 Finder 显示")")
-            case .notConfigured: self.publish([], message: "请在设置中添加搜索目录")
-            case .emptyQuery: self.publish([], message: "请输入文件名")
-            case .cancelled: self.publish([], message: "搜索已取消")
+                             message: hits.isEmpty ? L10n.tr("launcher.files_empty") : L10n.format("launcher.files_help", actionTitle))
+            case .notConfigured: self.publish([], message: L10n.tr("launcher.files_add_directories"))
+            case .emptyQuery: self.publish([], message: L10n.tr("launcher.file_query_empty"))
+            case .cancelled: self.publish([], message: L10n.tr("launcher.search_cancelled"))
             case .failed(let message): self.publish([], message: message)
             }
         }

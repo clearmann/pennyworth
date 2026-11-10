@@ -8,9 +8,9 @@ enum ActionError: LocalizedError {
     case missingFile, invalidURL, clipboardWriteFailed
     var errorDescription: String? {
         switch self {
-        case .missingFile: return "文件已移动、删除或暂时不可访问。请刷新搜索后重试。"
-        case .invalidURL: return "无法打开此网址。"
-        case .clipboardWriteFailed: return "无法写入剪贴板，请重试。"
+        case .missingFile: return L10n.tr("action.error.missing_file")
+        case .invalidURL: return L10n.tr("action.error.invalid_url")
+        case .clipboardWriteFailed: return L10n.tr("action.error.clipboard_write")
         }
     }
 }

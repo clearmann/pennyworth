@@ -2,10 +2,10 @@ import AppKit
 import Carbon
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let settings = SettingsStore()
-    private let usage = UsageStore()
-    private let bookmarks = BookmarkStore()
-    private let clipboardStore = ClipboardStore()
+    private let settings: SettingsStore
+    private let usage: UsageStore
+    private let bookmarks: BookmarkStore
+    private let clipboardStore: ClipboardStore
     private let clipboardMonitor = ClipboardMonitor()
     private var model: LauncherModel!
     private var panel: LauncherPanel!
@@ -23,6 +23,16 @@ import Carbon
     private let focusRestorer = ApplicationFocusRestorer(frontmostApplication: {
         NSWorkspace.shared.frontmostApplication
     })
+
+    override init() {
+        let savedSettings = SettingsStore()
+        AppLocalization.configure(language: savedSettings.settings.language)
+        settings = savedSettings
+        usage = UsageStore()
+        bookmarks = BookmarkStore()
+        clipboardStore = ClipboardStore()
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = LauncherModel(settings: settings, usage: usage, executor: ActionExecutor(), bookmarks: bookmarks)
@@ -44,7 +54,7 @@ import Carbon
         )
         clipboardPanel = LauncherPanel(contentRect: NSRect(origin: .zero, size: ClipboardHistoryViewController.panelSize),
                                        styleMask: [], backing: .buffered, defer: false)
-        clipboardPanel.title = "Pennyworth 剪贴板历史"
+        clipboardPanel.title = L10n.tr("clipboard.window_title")
         clipboardPanel.contentViewController = clipboardController
         clipboardPanel.delegate = self
         clipboardController.onDismiss = { [weak self] in self?.hideClipboardPanel() }
@@ -64,13 +74,13 @@ import Carbon
         item.button?.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Pennyworth")
         item.button?.toolTip = "Pennyworth"
         let menu = NSMenu()
-        hotKeyTitle = menu.addItem(withTitle: "显示 Pennyworth", action: #selector(togglePanel), keyEquivalent: "")
-        clipboardHotKeyTitle = menu.addItem(withTitle: "显示剪贴板历史", action: #selector(toggleClipboardPanel), keyEquivalent: "")
+        hotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_launcher"), action: #selector(togglePanel), keyEquivalent: "")
+        clipboardHotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_clipboard"), action: #selector(toggleClipboardPanel), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",")
-        menu.addItem(withTitle: "刷新应用列表", action: #selector(refreshApplications), keyEquivalent: "")
+        menu.addItem(withTitle: L10n.tr("menu.settings"), action: #selector(showSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: L10n.tr("menu.refresh_apps"), action: #selector(refreshApplications), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 Pennyworth", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: L10n.tr("menu.quit"), action: #selector(quit), keyEquivalent: "q")
         menu.items.filter { $0.action != nil }.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
@@ -90,10 +100,10 @@ import Carbon
                                             modifiers: HotKeyPreset.commandComma.modifiers) { [weak self] in
             self?.showSettings()
         }
-        hotKeyTitle?.title = actualHotKey.map { "显示 Pennyworth（\($0.title)）" }
-            ?? "显示 Pennyworth（热键不可用，请打开设置）"
-        clipboardHotKeyTitle?.title = actualClipboardHotKey.map { "显示剪贴板历史（\($0.title)）" }
-            ?? "显示剪贴板历史（热键不可用，请打开设置）"
+        hotKeyTitle?.title = actualHotKey.map { L10n.format("menu.show_launcher_hotkey", $0.title) }
+            ?? L10n.tr("menu.launcher_hotkey_unavailable")
+        clipboardHotKeyTitle?.title = actualClipboardHotKey.map { L10n.format("menu.show_clipboard_hotkey", $0.title) }
+            ?? L10n.tr("menu.clipboard_hotkey_unavailable")
     }
 
     private func registerStartupHotKey(name: String, requested: HotKeyPreset, candidates: [HotKeyPreset],
@@ -205,8 +215,8 @@ import Carbon
             try settings.save(value)
             actualHotKey = value.hotKey
             actualClipboardHotKey = value.clipboardHotKey
-            hotKeyTitle?.title = "显示 Pennyworth（\(value.hotKey.title)）"
-            clipboardHotKeyTitle?.title = "显示剪贴板历史（\(value.clipboardHotKey.title)）"
+            hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
+            clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
             model.refreshPreferences()
         } catch {
             try? HotKeyManager.shared.register(name: "launcher", keyCode: previous.hotKey.keyCode,
@@ -251,7 +261,10 @@ import Carbon
     @objc private func refreshApplications() {
         guard scanTask == nil else { return }
         scanTask = Task { [weak self] in
-            let apps = await Task.detached(priority: .userInitiated) { AppScanner.scanInstalledApplications() }.value
+            let language = AppLocalization.currentLanguage
+            let apps = await Task.detached(priority: .userInitiated) {
+                AppScanner.scanInstalledApplications(language: language)
+            }.value
             guard let self else { return }
             self.model.setApplications(apps)
             self.scanTask = nil

@@ -64,9 +64,9 @@ import Carbon
         searchField.isBezeled = false
         searchField.drawsBackground = false
         searchField.focusRingType = .none
-        searchField.placeholderString = "搜索应用，空格搜索文件…"
+        searchField.placeholderString = L10n.tr("launcher.search_placeholder")
         searchField.delegate = self
-        searchField.setAccessibilityLabel("搜索")
+        searchField.setAccessibilityLabel(L10n.tr("launcher.search_accessibility"))
         searchField.setAccessibilityIdentifier("launcher.query")
     }
 
@@ -84,7 +84,7 @@ import Carbon
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(execute)
-        tableView.setAccessibilityLabel("搜索结果")
+        tableView.setAccessibilityLabel(L10n.tr("launcher.results_accessibility"))
         scrollView.documentView = tableView
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -102,7 +102,7 @@ import Carbon
         rendering = true
         defer { rendering = false }
         searchField.isEditable = !model.isExecuting
-        status.stringValue = model.isExecuting ? "正在执行…" : model.snapshot.message
+        status.stringValue = model.isExecuting ? L10n.tr("launcher.executing") : model.snapshot.message
         tableView.reloadData()
         scrollView.isHidden = model.snapshot.results.isEmpty
         if let index = model.snapshot.results.firstIndex(where: { $0.id == model.selectedID }) {

@@ -247,6 +247,8 @@ final class AppScannerTests: XCTestCase {
         XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "活动监视器"))
         XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "活動監視器"))
         XCTAssertNotNil(FuzzyMatcher.score(item: item, query: "Activity Monitor"))
+        XCTAssertEqual(AppScanner.scan(directories: [root], language: .english).first?.name, "Activity Monitor")
+        XCTAssertEqual(AppScanner.scan(directories: [root], language: .simplifiedChinese).first?.name, "活动监视器")
     }
 
     func testMalformedInfoPlistLocTableKeepsRawApplicationName() throws {

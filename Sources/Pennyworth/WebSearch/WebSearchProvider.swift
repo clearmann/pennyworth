@@ -28,7 +28,7 @@ enum WebSearchProvider {
         return SearchResult(
             id: "web:\(definition.id):\(query)",
             title: "Search \(definition.title) for \(query)",
-            subtitle: "回车在默认浏览器中搜索", symbol: "globe", action: .openURL(url)
+            subtitle: L10n.tr("web_search.result.subtitle"), symbol: "globe", action: .openURL(url)
         )
     }
 
@@ -56,7 +56,7 @@ enum WebSearchProvider {
         return SearchResult(
             id: "web:\(engine.rawValue):\(query)",
             title: "Search \(engine.title) for \(query)",
-            subtitle: "回车在默认浏览器中搜索", symbol: "globe", action: .openURL(url)
+            subtitle: L10n.tr("web_search.result.subtitle"), symbol: "globe", action: .openURL(url)
         )
     }
 }

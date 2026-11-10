@@ -36,11 +36,11 @@ final class BookmarkStore {
             guard Set(saved.profiles.map(\.id)).count == saved.profiles.count,
                   saved.profiles.allSatisfy({ $0.id.hasPrefix("/") && !$0.id.contains("\0") }),
                   saved.snapshots.values.allSatisfy({ $0.entries.allSatisfy { ActionExecutor.isAllowedWebURL($0.url) } }) else {
-                throw BookmarkError.invalid("书签缓存内容无效。")
+                throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_cache"))
             }
             state = saved
         } catch {
-            warning = "本地书签数据无法读取，未载入缓存：\(error.localizedDescription)"
+            warning = L10n.format("bookmark.error.cache_read", error.localizedDescription)
         }
     }
 
@@ -55,7 +55,7 @@ final class BookmarkStore {
             $0.id == profileID || URL(fileURLWithPath: $0.id).resolvingSymlinksInPath().path
                 == URL(fileURLWithPath: profileID).resolvingSymlinksInPath().path
         }) else {
-            throw BookmarkError.invalid("未找到该 Chrome 个人资料，请重新检测。")
+            throw BookmarkError.invalid(L10n.tr("bookmark.error.profile_not_found"))
         }
         var next = state
         next.profiles[index].selected = selected
@@ -67,7 +67,7 @@ final class BookmarkStore {
             let discovered = try await Task.detached(priority: .userInitiated) {
                 try ChromeBookmarkReader.discover(root: root)
             }.value
-            guard !discovered.isEmpty else { throw BookmarkError.invalid("此目录没有可用的 Chrome 个人资料。请选择 Chrome 数据目录。") }
+            guard !discovered.isEmpty else { throw BookmarkError.invalid(L10n.tr("bookmark.error.no_profiles")) }
             var next = state
             for profile in discovered {
                 if let index = next.profiles.firstIndex(where: { $0.id == profile.id }) {
@@ -86,13 +86,13 @@ final class BookmarkStore {
 
     func refreshSelected() async throws {
         let selected = profiles.filter(\.selected)
-        guard !selected.isEmpty else { throw BookmarkError.invalid("请先选择要导入的 Chrome 个人资料。") }
+        guard !selected.isEmpty else { throw BookmarkError.invalid(L10n.tr("bookmark.error.select_profile")) }
         refreshGeneration += 1
         let generation = refreshGeneration
         let outcomes = await Task.detached(priority: .userInitiated) {
             selected.map { profile -> (String, BookmarkSnapshot?, String?) in
                 do { return (profile.id, try ChromeBookmarkReader.snapshot(profile: profile), nil) }
-                catch { return (profile.id, nil, "\(profile.name)：\(error.localizedDescription)") }
+                catch { return (profile.id, nil, L10n.format("bookmark.error.profile", profile.name, error.localizedDescription)) }
             }
         }.value
         // A clear or newer refresh wins over an older background read.
@@ -107,7 +107,7 @@ final class BookmarkStore {
         do {
             if succeeded { try commit(next) }
         } catch {
-            warning = "无法保存书签，保留上次数据：\(error.localizedDescription)"
+            warning = L10n.format("bookmark.error.save", error.localizedDescription)
             onChange?()
             throw error
         }
@@ -127,7 +127,7 @@ final class BookmarkStore {
 
     private func commit(_ next: State) throws {
         let data = try JSONEncoder().encode(next)
-        guard data.count <= ChromeBookmarkReader.maxBytes else { throw BookmarkError.invalid("书签缓存超过 32 MB 限制。") }
+        guard data.count <= ChromeBookmarkReader.maxBytes else { throw BookmarkError.invalid(L10n.tr("bookmark.error.cache_too_large")) }
         let fm = FileManager.default
         let parent = fileURL.deletingLastPathComponent()
         if !fm.fileExists(atPath: parent.path) {
@@ -135,7 +135,7 @@ final class BookmarkStore {
         }
         let temporary = parent.appendingPathComponent(".bookmarks-\(UUID().uuidString).tmp")
         guard fm.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
-            throw BookmarkError.invalid("无法创建私有书签缓存文件。")
+            throw BookmarkError.invalid(L10n.tr("bookmark.error.create_cache"))
         }
         defer { try? fm.removeItem(at: temporary) }
         let handle = try FileHandle(forWritingTo: temporary)

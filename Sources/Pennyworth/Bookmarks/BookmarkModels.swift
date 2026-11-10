@@ -45,7 +45,7 @@ enum ChromeBookmarkReader {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: maxBytes + 1) ?? Data()
-        guard data.count <= maxBytes else { throw BookmarkError.invalid("书签文件超过 32 MB 限制。") }
+        guard data.count <= maxBytes else { throw BookmarkError.invalid(L10n.tr("bookmark.error.too_large")) }
         return data
     }
 
@@ -86,28 +86,28 @@ enum ChromeBookmarkReader {
         let directory = URL(fileURLWithPath: profile.id, isDirectory: true).standardizedFileURL
         let values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
         guard values.isDirectory == true, values.isSymbolicLink != true else {
-            throw BookmarkError.invalid("个人资料路径已变为符号链接，请重新选择。")
+            throw BookmarkError.invalid(L10n.tr("bookmark.error.symlink"))
         }
         let fm = FileManager.default
         let encrypted = ["EncryptedBookmarks2", "EncryptedAccountBookmarks2"].contains {
             fm.fileExists(atPath: directory.appendingPathComponent($0).path)
         }
-        guard !encrypted else { throw BookmarkError.invalid("检测到 Chrome 加密书签，当前不支持读取；保留上次导入的数据。") }
+        guard !encrypted else { throw BookmarkError.invalid(L10n.tr("bookmark.error.encrypted")) }
         let files = ["Bookmarks", "AccountBookmarks"].map { directory.appendingPathComponent($0) }
             .filter { fm.fileExists(atPath: $0.path) }
-        guard !files.isEmpty else { throw BookmarkError.invalid("未找到 Chrome 书签文件。") }
+        guard !files.isEmpty else { throw BookmarkError.invalid(L10n.tr("bookmark.error.not_found")) }
         var entries: [BookmarkEntry] = []
         var skipped = 0
         var nodes = 0
         for file in files {
-            guard isContained(file, in: directory) else { throw BookmarkError.invalid("书签文件不能指向个人资料目录之外。") }
+            guard isContained(file, in: directory) else { throw BookmarkError.invalid(L10n.tr("bookmark.error.outside_profile")) }
             let json = try JSONSerialization.jsonObject(with: readData(file))
             guard let object = json as? [String: Any], let roots = object["roots"] as? [String: Any],
-                  roots["bookmark_bar"] != nil else { throw BookmarkError.invalid("Chrome 书签结构无效。") }
+                  roots["bookmark_bar"] != nil else { throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_structure")) }
             for key in ["bookmark_bar", "other", "synced"] {
                 guard let root = roots[key] else { continue }
                 guard let root = root as? [String: Any], root["type"] as? String == "folder" else {
-                    throw BookmarkError.invalid("Chrome 书签根文件夹无效。")
+                    throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_root"))
                 }
                 try visit(root, folders: [], depth: 0, identity: file.lastPathComponent + "/" + key,
                           profile: profile, entries: &entries, skipped: &skipped, nodes: &nodes)
@@ -120,25 +120,25 @@ enum ChromeBookmarkReader {
                               profile: ChromeProfile, entries: inout [BookmarkEntry], skipped: inout Int,
                               nodes: inout Int) throws {
         nodes += 1
-        guard depth <= maxDepth, nodes <= maxNodes else { throw BookmarkError.invalid("书签层级或数量超过安全限制。") }
+        guard depth <= maxDepth, nodes <= maxNodes else { throw BookmarkError.invalid(L10n.tr("bookmark.error.limits")) }
         guard let type = node["type"] as? String, let name = node["name"] as? String else {
-            throw BookmarkError.invalid("Chrome 书签条目结构无效。")
+            throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_entry"))
         }
         switch type {
         case "folder":
-            guard let children = node["children"] as? [[String: Any]] else { throw BookmarkError.invalid("书签文件夹缺少有效内容。") }
+            guard let children = node["children"] as? [[String: Any]] else { throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_folder")) }
             let path = name.isEmpty ? folders : folders + [name]
             for (index, child) in children.enumerated() {
                 try visit(child, folders: path, depth: depth + 1, identity: identity + "/\(index)",
                           profile: profile, entries: &entries, skipped: &skipped, nodes: &nodes)
             }
         case "url":
-            guard let text = node["url"] as? String else { throw BookmarkError.invalid("书签缺少网址。") }
+            guard let text = node["url"] as? String else { throw BookmarkError.invalid(L10n.tr("bookmark.error.missing_url")) }
             guard let url = URL(string: text), ActionExecutor.isAllowedWebURL(url) else { skipped += 1; return }
             entries.append(BookmarkEntry(id: profile.id + "/" + identity, title: name.isEmpty ? (url.host ?? text) : name,
                                          url: url, folderPath: folders.joined(separator: " / "),
                                          sourceID: profile.id, sourceName: profile.name))
-        default: throw BookmarkError.invalid("书签包含不支持的条目结构。")
+        default: throw BookmarkError.invalid(L10n.tr("bookmark.error.unsupported_entry"))
         }
     }
 }

@@ -5,9 +5,9 @@ import AppKit
     private let keywordField = NSTextField()
     private let titleField = NSTextField()
     private let templateField = NSTextField()
-    private let addButton = NSButton(title: "添加自定义搜索", target: nil, action: nil)
-    private let removeButton = NSButton(title: "删除自定义搜索", target: nil, action: nil)
-    private let enabledButton = NSButton(checkboxWithTitle: "启用", target: nil, action: nil)
+    private let addButton = NSButton(title: L10n.tr("web_search.add"), target: nil, action: nil)
+    private let removeButton = NSButton(title: L10n.tr("web_search.remove"), target: nil, action: nil)
+    private let enabledButton = NSButton(checkboxWithTitle: L10n.tr("common.enabled"), target: nil, action: nil)
     private(set) var definitions: [WebSearchDefinition] = []
 
     init() {
@@ -34,7 +34,7 @@ import AppKit
         removeButton.action = #selector(removeCustomSearch)
         enabledButton.target = self
         enabledButton.action = #selector(toggleEnabled)
-        enabledButton.setAccessibilityLabel("启用所选网页搜索")
+        enabledButton.setAccessibilityLabel(L10n.tr("web_search.enable_selected"))
         let actions = NSStackView(views: [addButton, removeButton, enabledButton])
         actions.spacing = 12
         actions.translatesAutoresizingMaskIntoConstraints = false
@@ -60,15 +60,15 @@ import AppKit
     }
 
     private func configureTable() {
-        for (id, title, width) in [
-            ("keyword", "关键词", 70.0),
-            ("title", "显示名称", 86.0),
-            ("template", "搜索 URL", 220.0),
-            ("source", "来源", 50.0),
-            ("enabled", "启用", 44.0),
+        for (id, key, width) in [
+            ("keyword", "web_search.keyword", 70.0),
+            ("title", "web_search.display_name", 86.0),
+            ("template", "web_search.url", 220.0),
+            ("source", "web_search.source", 50.0),
+            ("enabled", "common.enabled", 44.0),
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = title
+            column.title = L10n.tr(key)
             column.width = width
             tableView.addTableColumn(column)
         }
@@ -78,7 +78,7 @@ import AppKit
         tableView.intercellSpacing = NSSize(width: 4, height: 2)
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.allowsMultipleSelection = false
-        tableView.setAccessibilityLabel("网页搜索列表")
+        tableView.setAccessibilityLabel(L10n.tr("web_search.list_accessibility"))
         let scroll = NSScrollView()
         scroll.documentView = tableView
         scroll.hasVerticalScroller = true
@@ -87,23 +87,24 @@ import AppKit
     }
 
     private func configureEditor() {
-        for (field, label) in [
-            (keywordField, "网页搜索关键词"),
-            (titleField, "网页搜索显示名称"),
-            (templateField, "网页搜索 URL 模板"),
+        for (field, key) in [
+            (keywordField, "web_search.keyword_accessibility"),
+            (titleField, "web_search.title_accessibility"),
+            (templateField, "web_search.template_accessibility"),
         ] {
             field.delegate = self
-            field.setAccessibilityLabel(label)
+            field.setAccessibilityLabel(L10n.tr(key))
             field.lineBreakMode = .byTruncatingMiddle
         }
-        keywordField.placeholderString = "例如 gh"
-        titleField.placeholderString = "例如 GitHub"
+        keywordField.placeholderString = L10n.tr("web_search.keyword_example")
+        titleField.placeholderString = L10n.tr("web_search.title_example")
         templateField.placeholderString = "https://github.com/search?q={query}"
     }
 
     private func editorStack() -> NSStackView {
         let rows = [keywordField, titleField, templateField].map { field -> NSStackView in
-            let label = NSTextField(labelWithString: field == keywordField ? "关键词" : field == titleField ? "显示名称" : "搜索 URL")
+            let key = field == keywordField ? "web_search.keyword" : field == titleField ? "web_search.display_name" : "web_search.url"
+            let label = NSTextField(labelWithString: L10n.tr(key))
             label.widthAnchor.constraint(equalToConstant: 88).isActive = true
             let row = NSStackView(views: [label, field])
             row.spacing = 8
@@ -195,8 +196,8 @@ extension WebSearchSettingsView: NSTableViewDataSource, NSTableViewDelegate {
         case "keyword": text = definition.keyword
         case "title": text = definition.title
         case "template": text = definition.urlTemplate
-        case "source": text = definition.isCustom ? "自定义" : "内置"
-        case "enabled": text = definition.isEnabled ? "是" : "否"
+        case "source": text = L10n.tr(definition.isCustom ? "web_search.custom" : "web_search.built_in")
+        case "enabled": text = L10n.tr(definition.isEnabled ? "common.yes" : "common.no")
         default: return nil
         }
         let cell = NSTextField(labelWithString: text)

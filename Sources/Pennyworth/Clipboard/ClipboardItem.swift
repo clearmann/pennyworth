@@ -34,7 +34,7 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
 
     var displaySubtitle: String {
         switch content {
-        case .text(let value): return "\(value.count) 个字符 · \(timestamp.formatted(date: .abbreviated, time: .shortened))"
+        case .text(let value): return L10n.format("clipboard.characters", value.count, timestamp.formatted(date: .abbreviated, time: .shortened))
         case .image(_, let size): return "\(Int(size.width))×\(Int(size.height)) · \(timestamp.formatted(date: .abbreviated, time: .shortened))"
         case .file(let url): return url.path
         }
@@ -70,7 +70,7 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
             let data = try container.decode(Data.self, forKey: .imageData)
             guard let image = NSImage(data: data) else {
                 throw DecodingError.dataCorruptedError(forKey: .imageData, in: container,
-                                                       debugDescription: "无法读取剪贴板图片")
+                                                       debugDescription: L10n.tr("clipboard.error.read_image"))
             }
             let width = try container.decode(CGFloat.self, forKey: .imageWidth)
             let height = try container.decode(CGFloat.self, forKey: .imageHeight)
@@ -92,7 +92,7 @@ struct ClipboardItem: Identifiable, Equatable, Codable {
         case .image(let image, let size):
             guard let data = image.pngData else {
                 throw EncodingError.invalidValue(image, EncodingError.Context(codingPath: container.codingPath,
-                                                                              debugDescription: "无法保存剪贴板图片"))
+                                                                              debugDescription: L10n.tr("clipboard.error.save_image")))
             }
             try container.encode(Kind.image, forKey: .kind)
             try container.encode(data, forKey: .imageData)

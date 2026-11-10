@@ -5,7 +5,7 @@ enum CalculatorProvider {
         guard request.intent == .calculator else { return nil }
         let value = try Calculator.evaluate(request.query)
         return SearchResult(id: "calculator:\(request.query)", title: value,
-                            subtitle: "\(request.query)  ·  回车复制结果", symbol: "equal.square",
+                            subtitle: L10n.format("calculator.result.subtitle", request.query), symbol: "equal.square",
                             action: .copyText(value))
     }
 }

@@ -13,7 +13,7 @@ import AppKit
         imageView.imageAlignment = .alignCenter
         imageView.identifier = NSUserInterfaceItemIdentifier("clipboard.imagePreview")
         imageView.setAccessibilityIdentifier("clipboard.imagePreview")
-        imageView.setAccessibilityLabel("剪贴板图片预览")
+        imageView.setAccessibilityLabel(L10n.tr("clipboard.image_preview"))
         dimensionsLabel.translatesAutoresizingMaskIntoConstraints = false
         dimensionsLabel.font = .systemFont(ofSize: 12)
         dimensionsLabel.textColor = .secondaryLabelColor

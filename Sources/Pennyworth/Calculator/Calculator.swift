@@ -54,20 +54,20 @@ enum CalculatorError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .emptyExpression: return "表达式不能为空"
-        case .incompleteExpression: return "表达式不完整"
-        case .missingClosingParenthesis: return "缺少右括号"
-        case .expressionTooLong(let max): return "表达式过长（最多 \(max) 个字符）"
-        case .nestingTooDeep(let max): return "嵌套层数过多（最多 \(max) 层）"
-        case .unexpectedCharacter(let character): return "包含无法识别的字符：\(character)"
-        case .unexpectedToken(let token): return "表达式格式错误：意外的\(token)"
-        case .invalidNumber(let text): return "无效的数字：\(text)"
+        case .emptyExpression: return L10n.tr("calculator.error.empty")
+        case .incompleteExpression: return L10n.tr("calculator.error.incomplete")
+        case .missingClosingParenthesis: return L10n.tr("calculator.error.missing_parenthesis")
+        case .expressionTooLong(let max): return L10n.format("calculator.error.too_long", max)
+        case .nestingTooDeep(let max): return L10n.format("calculator.error.too_deep", max)
+        case .unexpectedCharacter(let character): return L10n.format("calculator.error.unexpected_character", String(character))
+        case .unexpectedToken(let token): return L10n.format("calculator.error.unexpected_token", token)
+        case .invalidNumber(let text): return L10n.format("calculator.error.invalid_number", text)
         case .numberTooPrecise(let text):
-            return "数字精度超出限制（最多 \(Calculator.maxSignificantDigits) 位有效数字）：\(text)"
-        case .numberOutOfRange(let text): return "数字超出可表示范围：\(text)"
-        case .divisionByZero: return "除数不能为零"
-        case .overflow: return "计算结果溢出"
-        case .underflow: return "计算结果下溢（数值过小）"
+            return L10n.format("calculator.error.number_too_precise", Calculator.maxSignificantDigits, text)
+        case .numberOutOfRange(let text): return L10n.format("calculator.error.number_out_of_range", text)
+        case .divisionByZero: return L10n.tr("calculator.error.division_by_zero")
+        case .overflow: return L10n.tr("calculator.error.overflow")
+        case .underflow: return L10n.tr("calculator.error.underflow")
         }
     }
 }
@@ -270,13 +270,13 @@ private struct Parser {
 
     private static func describe(_ token: Token) -> String {
         switch token {
-        case .number: return "数字"
-        case .plus: return "加号"
-        case .minus: return "减号"
-        case .star: return "乘号"
-        case .slash: return "除号"
-        case .leftParen: return "左括号"
-        case .rightParen: return "右括号"
+        case .number: return L10n.tr("calculator.token.number")
+        case .plus: return L10n.tr("calculator.token.plus")
+        case .minus: return L10n.tr("calculator.token.minus")
+        case .star: return L10n.tr("calculator.token.multiply")
+        case .slash: return L10n.tr("calculator.token.divide")
+        case .leftParen: return L10n.tr("calculator.token.left_parenthesis")
+        case .rightParen: return L10n.tr("calculator.token.right_parenthesis")
         }
     }
 }
