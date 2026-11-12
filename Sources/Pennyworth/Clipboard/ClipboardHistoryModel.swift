@@ -29,6 +29,12 @@ import Foundation
         return L10n.tr("clipboard.help")
     }
 
+    /// Reopening the panel starts a fresh browsing session: no query, latest item selected.
+    func resetToLatest() {
+        query = ""
+        selectedID = items.first?.id
+    }
+
     func updateQuery(_ value: String) {
         query = value
         if !visibleItems.contains(where: { $0.id == selectedID }) {

@@ -29,6 +29,23 @@ final class ClipboardHistoryModelTests: XCTestCase {
         XCTAssertEqual(model.visibleItems, [item])
     }
 
+    @MainActor func testReopeningResetsSelectionToLatestItem() {
+        let old = ClipboardItem(content: .text("old"), timestamp: Date())
+        let older = ClipboardItem(content: .text("older"), timestamp: Date())
+        let model = ClipboardHistoryModel(items: [old, older])
+        model.moveSelection(by: 1)
+        model.updateQuery("older")
+
+        let latest = ClipboardItem(content: .text("latest"), timestamp: Date())
+        model.updateItems([latest, old, older])
+        XCTAssertEqual(model.selectedItem?.id, older.id)
+
+        model.resetToLatest()
+
+        XCTAssertEqual(model.query, "")
+        XCTAssertEqual(model.selectedItem?.id, latest.id)
+    }
+
     @MainActor func testEmptyHistoryExposesHelpfulMessage() {
         let model = ClipboardHistoryModel(items: [])
 

@@ -42,6 +42,30 @@ final class ClipboardHistoryPresentationTests: XCTestCase {
         XCTAssertTrue(preview.image === image)
     }
 
+    @MainActor func testReopeningPanelSelectsLatestClipboardItem() throws {
+        _ = NSApplication.shared
+        let old = ClipboardItem(content: .text("old"), timestamp: Date())
+        let older = ClipboardItem(content: .text("older"), timestamp: Date())
+        let model = ClipboardHistoryModel(items: [old, older])
+        let controller = ClipboardHistoryViewController(model: model) { _ in }
+        _ = controller.view
+        let searchField = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? NSTextField }.first {
+            $0.placeholderString == "搜索剪贴板历史…"
+        })
+        let editor = NSTextView()
+
+        controller.focusSearchField()
+        XCTAssertTrue(controller.control(searchField, textView: editor, doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertEqual(model.selectedItem?.id, older.id)
+
+        let latest = ClipboardItem(content: .text("latest"), timestamp: Date())
+        controller.updateItems([latest, old, older])
+        controller.focusSearchField()
+
+        XCTAssertEqual(model.selectedItem?.id, latest.id)
+        XCTAssertEqual(searchField.stringValue, "")
+    }
+
     @MainActor private func makeImage() -> NSImage? {
         let image = NSImage(size: NSSize(width: 120, height: 80))
         image.lockFocus()

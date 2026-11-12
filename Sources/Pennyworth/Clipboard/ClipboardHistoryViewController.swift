@@ -67,7 +67,7 @@ import AppKit
     func focusSearchField() {
         _ = view
         searchField.stringValue = ""
-        model.updateQuery("")
+        model.resetToLatest()
         render()
         view.window?.makeFirstResponder(searchField)
     }
