@@ -31,13 +31,26 @@
 "launcher.search_cancelled" = "Search cancelled";
 "launcher.action.open" = "Open";
 "launcher.action.reveal" = "Reveal in Finder";
+"launcher.badge.bookmarks" = "Bookmarks";
+"launcher.badge.files" = "Files";
+"launcher.badge.calculator" = "Calc";
+"launcher.badge.web" = "Web";
+"launcher.badge.screenshot" = "Capture";
+"launcher.keycap.open" = "↵ Open";
+"launcher.keycap.reveal" = "↵ Finder";
+"launcher.keycap.copy" = "↵ Copy";
+"launcher.keycap.run" = "↵ Run";
+"clipboard.badge.text" = "Text";
+"clipboard.badge.image" = "Image";
+"clipboard.badge.file" = "File";
+"clipboard.keycap.restore" = "↵ Restore";
 "search.error.too_long" = "Input is too long; use at most 512 characters";
 "file_search.error.start" = "Spotlight could not start. Please try again later.";
 "file_search.error.timeout" = "Spotlight search timed out. Narrow the directory scope or check the index.";
 
 "web_search.result.subtitle" = "Press Return to search in the default browser";
 "web_search.error.invalid_keyword" = "Web search keywords must contain 1–32 letters, numbers, Chinese characters, hyphens, or underscores, with no spaces.";
-"web_search.error.reserved_keyword" = "This keyword is reserved for bm, open, or find. Choose another keyword.";
+"web_search.error.reserved_keyword" = "This keyword is reserved for bm, open, find, shot, or pin. Choose another keyword.";
 "web_search.error.duplicate_keyword" = "Web search keywords must be unique. Choose another keyword.";
 "web_search.error.invalid_title" = "Web search display names cannot be empty and must contain at most 80 characters.";
 "web_search.error.invalid_url" = "The search URL must be a valid HTTP/HTTPS address containing {query}, without account credentials.";
@@ -208,3 +221,55 @@
 "common.enabled" = "Enabled";
 "common.yes" = "Yes";
 "common.no" = "No";
+"common.ok" = "OK";
+
+"menu.screenshot" = "Screenshot";
+"menu.pin_clipboard" = "Pin Clipboard Image";
+"menu.screenshot_hotkey" = "Screenshot (%@)";
+"menu.screenshot_hotkey_unavailable" = "Screenshot (hotkey unavailable; open Settings)";
+"menu.screenshot_hotkey_not_set" = "Screenshot (no hotkey set)";
+
+"launcher.screenshot.capture" = "Capture Area";
+"launcher.screenshot.capture_subtitle" = "Drag to select an area; Return copies, Esc cancels";
+"launcher.screenshot.pin_clipboard" = "Pin Clipboard Image";
+"launcher.screenshot.pin_clipboard_subtitle" = "Float the clipboard image on top of the screen";
+"launcher.screenshot_help" = "↵ Run · Esc Cancel";
+
+"settings.page.screenshots" = "Screenshot";
+"settings.screenshot_hotkey" = "Screenshot Hotkey";
+"settings.screenshots.description" = "Area capture, annotations, and pinned images.";
+"settings.screenshot.commands_note" = "Type shot or 截图 in the launcher to capture an area, or pin / 贴图 to float the clipboard image. Press Delete while recording to disable the screenshot hotkey.";
+"settings.warning.screenshot_hotkey_disabled" = "The default screenshot hotkey ⌃⌥P conflicts with an existing binding and was disabled. Assign a new one in Screenshot settings.";
+
+"screenshot.permission.title" = "Screen Recording Permission Required";
+"screenshot.permission.message" = "Allow Pennyworth in System Settings → Privacy & Security → Screen Recording (or Screen & System Audio Recording), then start a new screenshot. Opening Settings ends this attempt. If access is already enabled but this message persists, quit and reopen Pennyworth.";
+"screenshot.permission.open_settings" = "Open System Settings";
+"screenshot.permission.retry" = "Check Again";
+"screenshot.permission.settings_failed" = "Could not open Screen Recording settings. Please open System Settings manually.";
+"screenshot.action.cancel" = "Cancel";
+"screenshot.error.capture_failed" = "Could not capture the screen. Check Screen Recording permission and try again.";
+"screenshot.error.image_encoding" = "Could not create the screenshot image. Please try again.";
+"screenshot.error.clipboard_image_missing" = "The clipboard does not contain a usable image.";
+"screenshot.error.clipboard_write" = "Could not write to the clipboard. Please try again.";
+"screenshot.error.save_failed" = "Could not save the screenshot. Please try again.";
+"screenshot.error.pin_limit" = "Pinned image count or memory budget reached. Close some pinned images first.";
+"screenshot.error.session_active" = "A screenshot session is already active.";
+"screenshot.error.hotkey_registration_failed" = "Could not register the screenshot hotkey %@. Another app may own this combination; choose a different one in Settings.";
+"action.error.screenshot_unavailable" = "Screenshot is unavailable.";
+
+"screenshot.tool.selection" = "Select";
+"screenshot.tool.rectangle" = "Rectangle";
+"screenshot.tool.ellipse" = "Ellipse";
+"screenshot.tool.arrow" = "Arrow";
+"screenshot.tool.pen" = "Pen";
+"screenshot.tool.text" = "Text";
+"screenshot.tool.mosaic" = "Mosaic";
+"screenshot.style.color" = "Color";
+"screenshot.style.line_width" = "Line Width";
+"screenshot.style.font_size" = "Font Size";
+"screenshot.action.copy" = "Copy";
+"screenshot.action.save" = "Save";
+"screenshot.action.pin" = "Pin";
+"screenshot.action.undo" = "Undo";
+"screenshot.action.redo" = "Redo";
+"screenshot.save.default_name" = "Screenshot";

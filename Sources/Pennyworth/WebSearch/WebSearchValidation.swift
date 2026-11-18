@@ -38,7 +38,7 @@ extension WebSearchDefinition {
             throw WebSearchValidationError.tooManyCustomSearches
         }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let reserved: Set<String> = ["bm", "open", "find"]
+        let reserved: Set<String> = ["bm", "open", "find", "shot", "screenshot", "截图", "pin", "贴图"]
         var keywords: Set<String> = []
         var identifiers: Set<String> = []
         for definition in definitions {

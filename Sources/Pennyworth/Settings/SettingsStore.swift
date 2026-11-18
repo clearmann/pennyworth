@@ -5,6 +5,7 @@ enum HotKeyPreset: Equatable, Codable {
     case optionSpace, optionShiftSpace, controlOptionSpace
     case optionCommandC, controlOptionC
     case commandComma
+    case controlOptionP
     case custom(keyCode: UInt32, modifiers: UInt32)
 
     var isCustom: Bool {
@@ -20,6 +21,7 @@ enum HotKeyPreset: Equatable, Codable {
         case .optionCommandC: return "⌥ ⌘ C"
         case .controlOptionC: return "⌃ ⌥ C"
         case .commandComma: return "⌘ ,"
+        case .controlOptionP: return "⌃ ⌥ P"
         case .custom(let keyCode, let modifiers):
             return Self.modifierTitle(modifiers) + Self.keyTitle(keyCode)
         }
@@ -30,6 +32,7 @@ enum HotKeyPreset: Equatable, Codable {
         case .optionSpace, .optionShiftSpace, .controlOptionSpace: return UInt32(kVK_Space)
         case .optionCommandC, .controlOptionC: return UInt32(kVK_ANSI_C)
         case .commandComma: return UInt32(kVK_ANSI_Comma)
+        case .controlOptionP: return UInt32(kVK_ANSI_P)
         case .custom(let keyCode, _): return keyCode
         }
     }
@@ -42,6 +45,7 @@ enum HotKeyPreset: Equatable, Codable {
         case .optionCommandC: return UInt32(optionKey | cmdKey)
         case .controlOptionC: return UInt32(controlKey | optionKey)
         case .commandComma: return UInt32(cmdKey)
+        case .controlOptionP: return UInt32(controlKey | optionKey)
         case .custom(_, let modifiers): return modifiers
         }
     }
@@ -61,7 +65,7 @@ enum HotKeyPreset: Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
     private enum Fixed: String, Codable {
-        case optionSpace, optionShiftSpace, controlOptionSpace, optionCommandC, controlOptionC, commandComma
+        case optionSpace, optionShiftSpace, controlOptionSpace, optionCommandC, controlOptionC, commandComma, controlOptionP
     }
 
     init(from decoder: Decoder) throws {
@@ -73,6 +77,7 @@ enum HotKeyPreset: Equatable, Codable {
             case .optionCommandC: self = .optionCommandC
             case .controlOptionC: self = .controlOptionC
             case .commandComma: self = .commandComma
+            case .controlOptionP: self = .controlOptionP
             }
             return
         }
@@ -89,6 +94,7 @@ enum HotKeyPreset: Equatable, Codable {
         case .optionCommandC: try encodeFixed(.optionCommandC, to: encoder)
         case .controlOptionC: try encodeFixed(.controlOptionC, to: encoder)
         case .commandComma: try encodeFixed(.commandComma, to: encoder)
+        case .controlOptionP: try encodeFixed(.controlOptionP, to: encoder)
         case .custom(let keyCode, let modifiers):
             var values = encoder.container(keyedBy: CodingKeys.self)
             try values.encode(keyCode, forKey: .keyCode)
@@ -129,11 +135,13 @@ struct LauncherSettings: Codable, Equatable {
     let fallbackOnlyWhenNoResults: Bool
     let clipboardHotKey: HotKeyPreset
     let language: AppLanguage
+    /// nil means the user disabled the screenshot hotkey (Delete in the recorder).
+    let screenshotHotKey: HotKeyPreset?
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
          rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
          fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC,
-         language: AppLanguage = .system) {
+         language: AppLanguage = .system, screenshotHotKey: HotKeyPreset? = .controlOptionP) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
@@ -142,10 +150,11 @@ struct LauncherSettings: Codable, Equatable {
         self.fallbackOnlyWhenNoResults = fallbackOnlyWhenNoResults
         self.clipboardHotKey = clipboardHotKey
         self.language = language
+        self.screenshotHotKey = screenshotHotKey
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey, language
+        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey, language, screenshotHotKey
     }
 
     init(from decoder: Decoder) throws {
@@ -159,10 +168,40 @@ struct LauncherSettings: Codable, Equatable {
         fallbackOnlyWhenNoResults = try values.decodeIfPresent(Bool.self, forKey: .fallbackOnlyWhenNoResults) ?? false
         clipboardHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .clipboardHotKey) ?? .optionCommandC
         language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
+        if values.contains(.screenshotHotKey) {
+            // An explicit JSON null is a deliberate user disable.
+            screenshotHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .screenshotHotKey)
+        } else {
+            // Legacy data: offer the default unless it collides with an existing binding.
+            let candidate = HotKeyPreset.controlOptionP
+            let collides = [hotKey, clipboardHotKey].contains {
+                $0.keyCode == candidate.keyCode && $0.modifiers == candidate.modifiers
+            }
+            screenshotHotKey = collides ? nil : candidate
+        }
     }
 
     static let defaults = LauncherSettings(hotKey: .optionSpace, searchDirectories: [],
                                            searchEngine: .google, rememberUsage: true)
+
+    /// JSONEncoder omits nil optionals by default; screenshotHotKey must encode an explicit
+    /// null so that "user disabled" survives a save/load round trip (absent key = legacy default).
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(hotKey, forKey: .hotKey)
+        try values.encode(searchDirectories, forKey: .searchDirectories)
+        try values.encode(searchEngine, forKey: .searchEngine)
+        try values.encode(webSearches, forKey: .webSearches)
+        try values.encode(rememberUsage, forKey: .rememberUsage)
+        try values.encode(fallbackOnlyWhenNoResults, forKey: .fallbackOnlyWhenNoResults)
+        try values.encode(clipboardHotKey, forKey: .clipboardHotKey)
+        try values.encode(language, forKey: .language)
+        if let screenshotHotKey {
+            try values.encode(screenshotHotKey, forKey: .screenshotHotKey)
+        } else {
+            try values.encodeNil(forKey: .screenshotHotKey)
+        }
+    }
 }
 
 final class SettingsStore {
@@ -178,6 +217,9 @@ final class SettingsStore {
                 let value = try JSONDecoder().decode(LauncherSettings.self, from: data)
                 try Self.validate(value)
                 settings = value
+                if Self.isLegacyMigrationDisable(data: data, value: value) {
+                    warning = L10n.tr("settings.warning.screenshot_hotkey_disabled")
+                }
             } catch {
                 settings = .defaults
                 warning = L10n.tr("settings.error.corrupted")
@@ -185,6 +227,15 @@ final class SettingsStore {
         } else {
             settings = .defaults
         }
+    }
+
+    /// Legacy JSON without a screenshotHotKey key whose default collided with an existing
+    /// binding is migrated to "disabled" with a warning instead of corrupting all settings.
+    private static func isLegacyMigrationDisable(data: Data, value: LauncherSettings) -> Bool {
+        guard value.screenshotHotKey == nil,
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              raw["screenshotHotKey"] == nil else { return false }
+        return true
     }
 
     func save(_ value: LauncherSettings) throws {
@@ -202,18 +253,32 @@ final class SettingsStore {
         }
         guard isValidBinding(value.hotKey, allowed: .launcher),
               isValidBinding(value.clipboardHotKey, allowed: .clipboard),
-              value.hotKey.keyCode != HotKeyPreset.commandComma.keyCode || value.hotKey.modifiers != HotKeyPreset.commandComma.modifiers,
-              value.clipboardHotKey.keyCode != HotKeyPreset.commandComma.keyCode || value.clipboardHotKey.modifiers != HotKeyPreset.commandComma.modifiers,
-              value.hotKey.keyCode != value.clipboardHotKey.keyCode || value.hotKey.modifiers != value.clipboardHotKey.modifiers else {
+              !sameBinding(value.hotKey, HotKeyPreset.commandComma),
+              !sameBinding(value.clipboardHotKey, HotKeyPreset.commandComma),
+              !sameBinding(value.hotKey, value.clipboardHotKey) else {
             throw SettingsError.invalidHotKeys
+        }
+        if let screenshot = value.screenshotHotKey {
+            guard isValidBinding(screenshot, allowed: .screenshot),
+                  !sameBinding(screenshot, HotKeyPreset.commandComma),
+                  !sameBinding(screenshot, value.hotKey),
+                  !sameBinding(screenshot, value.clipboardHotKey) else {
+                throw SettingsError.invalidHotKeys
+            }
         }
     }
 
-    private enum BindingGroup { case launcher, clipboard }
+    /// Compares physical key combinations: .optionCommandC and .custom(⌥⌘C) are the same hotkey.
+    private static func sameBinding(_ a: HotKeyPreset, _ b: HotKeyPreset) -> Bool {
+        a.keyCode == b.keyCode && a.modifiers == b.modifiers
+    }
+
+    private enum BindingGroup { case launcher, clipboard, screenshot }
 
     private static func isValidBinding(_ binding: HotKeyPreset, allowed: BindingGroup) -> Bool {
         if allowed == .launcher && HotKeyPreset.launcherPresets.contains(binding) { return true }
         if allowed == .clipboard && HotKeyPreset.clipboardPresets.contains(binding) { return true }
+        if allowed == .screenshot && binding == .controlOptionP { return true }
         guard case .custom(let keyCode, let modifiers) = binding else { return false }
         let allowedModifiers = UInt32(cmdKey | optionKey | controlKey | shiftKey)
         return keyCode <= UInt32(UInt16.max)

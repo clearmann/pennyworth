@@ -6,8 +6,10 @@ import Carbon
     static let panelSize = NSSize(width: 680, height: 420)
     private let model: LauncherModel
     private let searchField = NSTextField()
+    private lazy var headerView = SearchHeaderView(symbolName: "magnifyingglass", searchField: searchField)
     private let tableView = LauncherResultsTableView()
     private let status = NSTextField(labelWithString: "")
+    private lazy var footerView = StatusFooterView(statusLabel: status)
     private let scrollView = NSScrollView()
     private let iconCache = NSCache<NSURL, NSImage>()
     private var rendering = false
@@ -25,45 +27,32 @@ import Carbon
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func loadView() {
-        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.panelSize))
-        effect.material = .popover
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
-        effect.layer?.masksToBounds = true
+        let effect = FloatingPanelRootView(frame: NSRect(origin: .zero, size: Self.panelSize))
         view = effect
         configureSearch()
         configureTable()
-        status.font = .systemFont(ofSize: 12)
-        status.textColor = .secondaryLabelColor
-        status.lineBreakMode = .byTruncatingTail
         status.setAccessibilityIdentifier("launcher.status")
-        [searchField, scrollView, status].forEach {
+        headerView.badge.onTap = { [weak self] in self?.onSettings?() }
+        [headerView, scrollView, footerView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             effect.addSubview($0)
         }
         NSLayoutConstraint.activate([
-            searchField.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            searchField.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
-            searchField.topAnchor.constraint(equalTo: effect.topAnchor, constant: 12),
-            searchField.heightAnchor.constraint(equalToConstant: 48),
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            headerView.topAnchor.constraint(equalTo: effect.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
-            status.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            status.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
-            status.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
-            status.heightAnchor.constraint(equalToConstant: 20),
+            scrollView.bottomAnchor.constraint(equalTo: footerView.topAnchor, constant: -6),
+            footerView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            footerView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            footerView.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
         render()
     }
 
     private func configureSearch() {
-        searchField.font = .systemFont(ofSize: 26, weight: .light)
-        searchField.isBezeled = false
-        searchField.drawsBackground = false
-        searchField.focusRingType = .none
         searchField.placeholderString = L10n.tr("launcher.search_placeholder")
         searchField.delegate = self
         searchField.setAccessibilityLabel(L10n.tr("launcher.search_accessibility"))
@@ -71,24 +60,17 @@ import Carbon
     }
 
     private func configureTable() {
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("result"))
-        column.width = Self.panelSize.width
-        tableView.addTableColumn(column)
-        tableView.headerView = nil
-        tableView.rowHeight = 56
-        tableView.intercellSpacing = .zero
-        tableView.backgroundColor = .clear
-        tableView.style = .fullWidth
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        FloatingPanelChrome.configureResultsTable(
+            tableView,
+            in: scrollView,
+            columnIdentifier: "result",
+            width: Self.panelSize.width,
+            accessibilityLabel: L10n.tr("launcher.results_accessibility")
+        )
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(execute)
-        tableView.setAccessibilityLabel(L10n.tr("launcher.results_accessibility"))
-        scrollView.documentView = tableView
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
     }
 
     func focusSearchField(reset: Bool = true) {
@@ -103,16 +85,39 @@ import Carbon
         defer { rendering = false }
         searchField.isEditable = !model.isExecuting
         status.stringValue = model.isExecuting ? L10n.tr("launcher.executing") : model.snapshot.message
+        updateHeaderBadge()
         tableView.reloadData()
         scrollView.isHidden = model.snapshot.results.isEmpty
         if let index = model.snapshot.results.firstIndex(where: { $0.id == model.selectedID }) {
             tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
             tableView.scrollRowToVisible(index)
         } else { tableView.deselectAll(nil) }
-        onHeightChanged?(106 + CGFloat(min(model.snapshot.results.count, 7)) * 56)
+        onHeightChanged?(PennyworthTheme.collapsedPanelHeight + CGFloat(min(model.snapshot.results.count, 7)) * PennyworthTheme.rowHeight)
     }
 
     @objc private func execute() { model.executeSelected() }
+
+    private func updateHeaderBadge() {
+        guard !model.query.isEmpty,
+              let active = model.snapshot.results.first(where: { $0.id == model.selectedID }) ?? model.snapshot.results.first else {
+            headerView.badge.update(text: "⌘,", style: .neutral, accessibilityLabel: L10n.tr("menu.settings"))
+            return
+        }
+        let badgeText: String
+        switch active.action {
+        case .copyText: badgeText = L10n.tr("launcher.badge.calculator")
+        case .openFile, .revealFile: badgeText = L10n.tr("launcher.badge.files")
+        case .openURL:
+            badgeText = active.id.hasPrefix("bookmark:")
+                ? L10n.tr("launcher.badge.bookmarks")
+                : L10n.tr("launcher.badge.web")
+        case .startScreenshot, .pinClipboardImage: badgeText = L10n.tr("launcher.badge.screenshot")
+        case .openApplication:
+            headerView.badge.update(text: "⌘,", style: .neutral, accessibilityLabel: L10n.tr("menu.settings"))
+            return
+        }
+        headerView.badge.update(text: badgeText, style: .accent)
+    }
 }
 
 extension LauncherViewController: NSTextFieldDelegate {
@@ -152,7 +157,12 @@ extension LauncherViewController: NSTableViewDataSource, NSTableViewDelegate {
             icon = iconCache.object(forKey: url as NSURL) ?? NSWorkspace.shared.icon(forFile: url.path)
             if let icon { iconCache.setObject(icon, forKey: url as NSURL) }
         }
-        cell.configure(result, icon: icon, selected: result.id == model.selectedID)
+        cell.configure(
+            result,
+            icon: icon,
+            selected: result.id == model.selectedID,
+            usesSymbolBackground: result.fileURL == nil
+        )
         return cell
     }
 }
@@ -164,54 +174,5 @@ private final class LauncherResultsTableView: NSTableView {
             return
         }
         if let doubleAction { sendAction(doubleAction, to: target) }
-    }
-}
-
-final class ResultCellView: NSTableCellView {
-    private let subtitle = NSTextField(labelWithString: "")
-    private let hint = NSTextField(labelWithString: "↵")
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        let image = NSImageView()
-        image.imageScaling = .scaleProportionallyDown
-        let title = NSTextField(labelWithString: "")
-        title.font = .systemFont(ofSize: 15, weight: .medium)
-        subtitle.font = .systemFont(ofSize: 12)
-        subtitle.textColor = .secondaryLabelColor
-        title.lineBreakMode = .byTruncatingTail
-        subtitle.lineBreakMode = .byTruncatingMiddle
-        hint.textColor = .secondaryLabelColor
-        [image, title, subtitle, hint].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            image.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            image.centerYAnchor.constraint(equalTo: centerYAnchor),
-            image.widthAnchor.constraint(equalToConstant: 32), image.heightAnchor.constraint(equalToConstant: 32),
-            title.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 12),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            title.trailingAnchor.constraint(equalTo: hint.leadingAnchor, constant: -12),
-            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 3),
-            subtitle.trailingAnchor.constraint(equalTo: title.trailingAnchor),
-            hint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            hint.centerYAnchor.constraint(equalTo: centerYAnchor), hint.widthAnchor.constraint(equalToConstant: 20),
-        ])
-        imageView = image
-        textField = title
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func configure(_ result: SearchResult, icon: NSImage?, selected: Bool) {
-        textField?.stringValue = result.title
-        subtitle.stringValue = result.subtitle
-        imageView?.image = icon
-        hint.isHidden = !selected
-        setAccessibilityLabel("\(result.title)，\(result.subtitle)")
     }
 }

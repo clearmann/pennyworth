@@ -7,8 +7,10 @@ import AppKit
     private let model: ClipboardHistoryModel
     private let onRestore: (ClipboardItem) -> Void
     private let searchField = NSTextField()
+    private lazy var headerView = SearchHeaderView(symbolName: "doc.on.clipboard", searchField: searchField)
     private let tableView = NSTableView()
     private let status = NSTextField(labelWithString: "")
+    private lazy var footerView = StatusFooterView(statusLabel: status)
     private let scrollView = NSScrollView()
     private let contentStack = NSStackView()
     private let imagePreview = ClipboardImagePreviewView()
@@ -27,11 +29,7 @@ import AppKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func loadView() {
-        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.panelSize))
-        effect.material = .popover
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
+        let effect = FloatingPanelRootView(frame: NSRect(origin: .zero, size: Self.panelSize))
         view = effect
         configureSearch()
         configureTable()
@@ -39,27 +37,22 @@ import AppKit
         contentStack.spacing = 0
         contentStack.addArrangedSubview(scrollView)
         contentStack.addArrangedSubview(imagePreview)
-        status.font = .systemFont(ofSize: 12)
-        status.textColor = .secondaryLabelColor
-        status.lineBreakMode = .byTruncatingTail
         status.setAccessibilityIdentifier("clipboard.status")
-        [searchField, contentStack, status].forEach {
+        [headerView, contentStack, footerView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             effect.addSubview($0)
         }
         NSLayoutConstraint.activate([
-            searchField.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            searchField.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
-            searchField.topAnchor.constraint(equalTo: effect.topAnchor, constant: 12),
-            searchField.heightAnchor.constraint(equalToConstant: 48),
-            contentStack.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            headerView.topAnchor.constraint(equalTo: effect.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 6),
             contentStack.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            contentStack.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -8),
-            status.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 18),
-            status.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -18),
-            status.bottomAnchor.constraint(equalTo: effect.bottomAnchor, constant: -10),
-            status.heightAnchor.constraint(equalToConstant: 20),
+            contentStack.bottomAnchor.constraint(equalTo: footerView.topAnchor, constant: -6),
+            footerView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            footerView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            footerView.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
         render()
     }
@@ -78,10 +71,6 @@ import AppKit
     }
 
     private func configureSearch() {
-        searchField.font = .systemFont(ofSize: 26, weight: .light)
-        searchField.isBezeled = false
-        searchField.drawsBackground = false
-        searchField.focusRingType = .none
         searchField.placeholderString = L10n.tr("clipboard.search_placeholder")
         searchField.delegate = self
         searchField.setAccessibilityLabel(L10n.tr("clipboard.search_accessibility"))
@@ -89,24 +78,17 @@ import AppKit
     }
 
     private func configureTable() {
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("clipboard.result"))
-        column.width = Self.panelSize.width
-        tableView.addTableColumn(column)
-        tableView.headerView = nil
-        tableView.rowHeight = 56
-        tableView.intercellSpacing = .zero
-        tableView.backgroundColor = .clear
-        tableView.style = .fullWidth
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        FloatingPanelChrome.configureResultsTable(
+            tableView,
+            in: scrollView,
+            columnIdentifier: "clipboard.result",
+            width: Self.panelSize.width,
+            accessibilityLabel: L10n.tr("clipboard.results_accessibility")
+        )
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
         tableView.doubleAction = #selector(restoreSelected)
-        tableView.setAccessibilityLabel(L10n.tr("clipboard.results_accessibility"))
-        scrollView.documentView = tableView
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
     }
 
     private func render() {
@@ -115,6 +97,7 @@ import AppKit
         defer { rendering = false }
         status.stringValue = model.message
         imagePreview.update(with: model.selectedItem)
+        updateHeaderBadge()
         tableView.reloadData()
         if let index = model.visibleItems.firstIndex(where: { $0.id == model.selectedID }) {
             tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
@@ -122,13 +105,28 @@ import AppKit
         } else {
             tableView.deselectAll(nil)
         }
-        let contentHeight = 106 + CGFloat(min(max(model.visibleItems.count, 1), 7)) * 56
+        let contentHeight = PennyworthTheme.collapsedPanelHeight
+            + CGFloat(min(max(model.visibleItems.count, 1), 7)) * PennyworthTheme.rowHeight
         onHeightChanged?(imagePreview.isHidden ? contentHeight : max(contentHeight, Self.imagePreviewPanelHeight))
     }
 
     @objc private func restoreSelected() {
         guard let item = model.selectedItem else { return }
         onRestore(item)
+    }
+
+    private func updateHeaderBadge() {
+        guard let selected = model.selectedItem else {
+            headerView.badge.update(text: "", style: .neutral)
+            return
+        }
+        let label: String
+        switch selected.content {
+        case .text: label = L10n.tr("clipboard.badge.text")
+        case .image: label = L10n.tr("clipboard.badge.image")
+        case .file: label = L10n.tr("clipboard.badge.file")
+        }
+        headerView.badge.update(text: label, style: .accent)
     }
 
     private func result(for item: ClipboardItem) -> SearchResult {
@@ -187,12 +185,21 @@ extension ClipboardHistoryViewController: NSTableViewDataSource, NSTableViewDele
         let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? ResultCellView)
             ?? ResultCellView(identifier: identifier)
         let icon: NSImage?
+        let usesSymbolBackground: Bool
         if case .image(let image, _) = item.content {
             icon = image
+            usesSymbolBackground = false
         } else {
             icon = NSImage(systemSymbolName: result.symbol, accessibilityDescription: nil)
+            usesSymbolBackground = true
         }
-        cell.configure(result, icon: icon, selected: item.id == model.selectedID)
+        cell.configure(
+            result,
+            icon: icon,
+            selected: item.id == model.selectedID,
+            usesSymbolBackground: usesSymbolBackground,
+            actionBadgeText: L10n.tr("clipboard.keycap.restore")
+        )
         return cell
     }
 }

@@ -12,6 +12,22 @@ swift test
 open Pennyworth.app --args --show
 ```
 
+`build.sh` 会对完整 app bundle 签名并执行 `codesign --verify --strict`。默认 `CODE_SIGN_IDENTITY=-`（ad-hoc），**不能保证跨重编译保留 TCC 权限**。证书签名需使用用户已有且持续使用的稳定签名 identity；显式指定 identity 后，签名失败会终止构建，不会自动降级。
+
+可指定隔离输出，不替换默认的 `Pennyworth.app`：
+
+```bash
+APP_BUNDLE=.build/signing-check/Pennyworth.app ./build.sh
+```
+
+如已有稳定签名证书，可同时指定 identity：
+
+```bash
+CODE_SIGN_IDENTITY="已有的证书名称或 SHA-1" APP_BUNDLE=.build/signing-check/Pennyworth.app ./build.sh
+```
+
+`APP_BUNDLE` 默认是仓库根目录下的 `Pennyworth.app`，相对路径也以仓库根目录为基准。输出须以 `.app` 结尾；已有目标必须是非符号链接、`CFBundleIdentifier=com.clearmann.pennyworth` 的 bundle，否则拒绝覆盖。
+
 `--show` 在首次启动时立即展示搜索窗口。应用以菜单栏工具运行，没有 Dock 图标。
 默认快捷键 **⌥Space**；冲突时依次尝试 **⌥⇧Space**、**⌃⌥Space**。菜单栏「显示 Pennyworth」标明实际生效的快捷键；所有快捷键都不可用时，仍可通过菜单栏进入设置。
 
@@ -93,7 +109,7 @@ swift test --enable-code-coverage
 - [ ] 修改 Chrome 书签后手动刷新；失败时旧书签仍可搜索，清除副本不影响 Chrome。
 - [ ] 默认结果页与网页书签页的展示开关联动；窗口缩小后配置仍可滚动访问。
 
-当前构建脚本生成本机测试用 `.app`，不是已签名、公证的公开分发包。
+当前构建脚本生成本机测试用 `.app`，默认采用 ad-hoc 签名，未经公证，不是公开分发包。
 首版不包含 Snippets、Workflow、文件全文搜索、主题导入、登录启动或自动更新。
 
 ## License

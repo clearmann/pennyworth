@@ -5,19 +5,25 @@ import AppKit
 }
 
 enum ActionError: LocalizedError {
-    case missingFile, invalidURL, clipboardWriteFailed
+    case missingFile, invalidURL, clipboardWriteFailed, screenshotUnavailable
     var errorDescription: String? {
         switch self {
         case .missingFile: return L10n.tr("action.error.missing_file")
         case .invalidURL: return L10n.tr("action.error.invalid_url")
         case .clipboardWriteFailed: return L10n.tr("action.error.clipboard_write")
+        case .screenshotUnavailable: return L10n.tr("action.error.screenshot_unavailable")
         }
     }
 }
 
 @MainActor final class ActionExecutor: ActionExecuting {
     private let pasteboard: NSPasteboard
-    init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
+    private let screenshotActions: ScreenshotActionHandling?
+
+    init(pasteboard: NSPasteboard = .general, screenshotActions: ScreenshotActionHandling? = nil) {
+        self.pasteboard = pasteboard
+        self.screenshotActions = screenshotActions
+    }
 
     nonisolated static func isAllowedWebURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
@@ -47,7 +53,17 @@ enum ActionError: LocalizedError {
                 completion(.failure(ActionError.invalidURL)); return
             }
             open(url, application: false, completion: completion)
+        case .startScreenshot:
+            // Acceptance means the session started; capture errors surface in the session itself.
+            completion(Result { try requireScreenshotActions().startScreenshot() })
+        case .pinClipboardImage:
+            completion(Result { try requireScreenshotActions().pinClipboardImage() })
         }
+    }
+
+    private func requireScreenshotActions() throws -> ScreenshotActionHandling {
+        guard let screenshotActions else { throw ActionError.screenshotUnavailable }
+        return screenshotActions
     }
 
     private func open(_ url: URL, application: Bool, completion: @escaping (Result<Void, Error>) -> Void) {

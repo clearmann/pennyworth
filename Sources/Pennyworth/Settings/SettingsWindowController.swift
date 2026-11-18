@@ -6,7 +6,7 @@ private final class SettingsPageHost: NSView {
 
 @MainActor final class SettingsWindowController: NSWindowController {
     static var pageTitles: [String] {
-        ["general", "default_results", "file_search", "web_search", "bookmarks", "calculator"].map {
+        ["general", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots"].map {
             L10n.tr("settings.page.\($0)")
         }
     }
@@ -16,6 +16,7 @@ private final class SettingsPageHost: NSView {
     private let apply: (LauncherSettings) throws -> Void
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
+    private let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP)
     private let engine = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let webSearchSettings = WebSearchSettingsView()
@@ -63,6 +64,7 @@ private final class SettingsPageHost: NSView {
         let value = store.settings
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
+        screenshotHotKeyRecorder.setBinding(value.screenshotHotKey)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
         webSearchSettings.reload(value.webSearches)
@@ -79,6 +81,7 @@ private final class SettingsPageHost: NSView {
         guard let content = window?.contentView else { return }
         hotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.hotkey"))
         clipboardHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.clipboard_hotkey"))
+        screenshotHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.screenshot_hotkey"))
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
         languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
@@ -99,7 +102,7 @@ private final class SettingsPageHost: NSView {
         nav.alignment = .leading
         nav.spacing = 6
         nav.translatesAutoresizingMaskIntoConstraints = false
-        let symbols = ["gearshape", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus"]
+        let symbols = ["gearshape", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder"]
         for (index, title) in Self.pageTitles.enumerated() {
             let button = NSButton(title: title, target: self, action: #selector(navigate(_:)))
             button.setButtonType(.pushOnPushOff)
@@ -208,6 +211,10 @@ private final class SettingsPageHost: NSView {
         addPage(L10n.tr("settings.page.calculator"), description: L10n.tr("settings.calculator.description"), controls: [
             note(L10n.tr("settings.calculator.syntax_note")),
             note(L10n.tr("settings.calculator.example_note")),
+        ])
+        addPage(L10n.tr("settings.page.screenshots"), description: L10n.tr("settings.screenshots.description"), controls: [
+            row(L10n.tr("settings.screenshot_hotkey"), screenshotHotKeyRecorder),
+            note(L10n.tr("settings.screenshot.commands_note")),
         ])
         // Bookmark state is loaded after the window is first presented.
     }
@@ -426,7 +433,8 @@ private final class SettingsPageHost: NSView {
                                      webSearches: webSearchSettings.definitions,
                                      fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
                                      clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
-                                     language: AppLanguage.allCases[languagePopup.indexOfSelectedItem])
+                                     language: AppLanguage.allCases[languagePopup.indexOfSelectedItem],
+                                     screenshotHotKey: screenshotHotKeyRecorder.binding)
         let languageChanged = value.language != store.settings.language
         do {
             try apply(value)

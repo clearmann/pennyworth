@@ -94,6 +94,8 @@ import os
                     message: L10n.tr("launcher.web_search_help"))
         case .fileSearch(let action):
             searchFiles(request.query, action: action)
+        case .screenshot(let command):
+            publish([ScreenshotProvider.result(for: command)], message: L10n.tr("launcher.screenshot_help"))
         }
     }
 

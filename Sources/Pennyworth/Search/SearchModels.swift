@@ -5,12 +5,18 @@ enum FileAction: Equatable {
     case reveal
 }
 
+enum ScreenshotCommand: Equatable {
+    case capture
+    case pinClipboard
+}
+
 enum QueryIntent: Equatable {
     case applications
     case bookmarks
     case fileSearch(FileAction)
     case calculator
     case web(WebSearchDefinition)
+    case screenshot(ScreenshotCommand)
 }
 
 struct SearchRequest: Equatable {
@@ -25,6 +31,8 @@ enum SearchAction: Equatable {
     case revealFile(URL)
     case openURL(URL)
     case copyText(String)
+    case startScreenshot
+    case pinClipboardImage
 }
 
 struct SearchResult: Equatable, Identifiable {

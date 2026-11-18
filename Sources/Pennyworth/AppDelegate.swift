@@ -16,8 +16,13 @@ import Carbon
     private var statusItem: NSStatusItem?
     private var hotKeyTitle: NSMenuItem?
     private var clipboardHotKeyTitle: NSMenuItem?
+    private var screenshotHotKeyTitle: NSMenuItem?
     private var actualHotKey: HotKeyPreset?
     private var actualClipboardHotKey: HotKeyPreset?
+    private var actualScreenshotHotKey: HotKeyPreset?
+    private var pinnedImageManager: PinnedImageManager!
+    private var screenshotController: ScreenshotSessionController!
+    private var screenshotHotKeyAlertShown = false
     private var scanTask: Task<Void, Never>?
     private var clipboardTimer: Timer?
     private let focusRestorer = ApplicationFocusRestorer(frontmostApplication: {
@@ -35,7 +40,34 @@ import Carbon
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        model = LauncherModel(settings: settings, usage: usage, executor: ActionExecutor(), bookmarks: bookmarks)
+        pinnedImageManager = PinnedImageManager()
+        let output = ScreenshotOutputHandler(pinnedImageManager: pinnedImageManager)
+        let permission = ScreenCapturePermissionCoordinator(
+            access: SystemScreenCaptureAccess(),
+            guidance: AlertScreenCaptureGuidancePresenter(),
+            settingsOpener: SystemScreenCaptureSettingsOpener()
+        )
+        screenshotController = ScreenshotSessionController(
+            capturer: ScreenCapturerFactory.make(),
+            permission: permission,
+            overlay: ScreenshotOverlayController(),
+            output: output
+        )
+        screenshotController.onWillCapture = { [weak self] in
+            guard let self else { return }
+            self.focusRestorer.captureFrontmostApplication()
+            self.hidePanel()
+            self.hideClipboardPanel()
+        }
+        screenshotController.onCancelRestoreFocus = { [weak self] in
+            self?.focusRestorer.restorePreviousApplication()
+        }
+        screenshotController.onError = { [weak self] error in
+            self?.showScreenshotError(error)
+        }
+
+        model = LauncherModel(settings: settings, usage: usage,
+                              executor: ActionExecutor(screenshotActions: screenshotController), bookmarks: bookmarks)
         bookmarks.onChange = { [weak self] in self?.model.refreshPreferences() }
         controller = LauncherViewController(model: model)
         panel = LauncherPanel(contentRect: NSRect(origin: .zero, size: LauncherViewController.panelSize),
@@ -44,6 +76,7 @@ import Carbon
         panel.contentViewController = controller
         panel.delegate = self
         controller.onDismiss = { [weak self] in self?.dismissPanel() }
+        controller.onSettings = { [weak self] in self?.showSettings() }
         controller.onHeightChanged = { [weak self] height in self?.resizePanel(self?.panel, height: height) }
         model.onDismiss = { [weak self] in self?.panel.orderOut(nil) }
         model.onExecutionError = { [weak self] in self?.showPanel(reset: false) }
@@ -77,6 +110,9 @@ import Carbon
         hotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_launcher"), action: #selector(togglePanel), keyEquivalent: "")
         clipboardHotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_clipboard"), action: #selector(toggleClipboardPanel), keyEquivalent: "")
         menu.addItem(.separator())
+        screenshotHotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.screenshot"), action: #selector(startScreenshotFromMenu), keyEquivalent: "")
+        menu.addItem(withTitle: L10n.tr("menu.pin_clipboard"), action: #selector(pinClipboardFromMenu), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: L10n.tr("menu.settings"), action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(withTitle: L10n.tr("menu.refresh_apps"), action: #selector(refreshApplications), keyEquivalent: "")
         menu.addItem(.separator())
@@ -100,10 +136,71 @@ import Carbon
                                             modifiers: HotKeyPreset.commandComma.modifiers) { [weak self] in
             self?.showSettings()
         }
+        registerScreenshotHotKey(settings.settings.screenshotHotKey)
         hotKeyTitle?.title = actualHotKey.map { L10n.format("menu.show_launcher_hotkey", $0.title) }
             ?? L10n.tr("menu.launcher_hotkey_unavailable")
         clipboardHotKeyTitle?.title = actualClipboardHotKey.map { L10n.format("menu.show_clipboard_hotkey", $0.title) }
             ?? L10n.tr("menu.clipboard_hotkey_unavailable")
+        updateScreenshotHotKeyTitle()
+    }
+
+    /// Direct named registration only: no candidate fallback, no silent failure.
+    private func registerScreenshotHotKey(_ preset: HotKeyPreset?) {
+        actualScreenshotHotKey = nil
+        guard let preset else { return }
+        do {
+            try HotKeyManager.shared.register(name: "screenshot", keyCode: preset.keyCode,
+                                              modifiers: preset.modifiers) { [weak self] in
+                try? self?.screenshotController.startScreenshot()
+            }
+            actualScreenshotHotKey = preset
+        } catch {
+            actualScreenshotHotKey = nil
+            if !screenshotHotKeyAlertShown {
+                screenshotHotKeyAlertShown = true
+                DispatchQueue.main.async { [weak self] in self?.showHotKeyRegistrationAlert(preset) }
+            }
+        }
+    }
+
+    private func updateScreenshotHotKeyTitle() {
+        if settings.settings.screenshotHotKey == nil {
+            screenshotHotKeyTitle?.title = L10n.tr("menu.screenshot_hotkey_not_set")
+        } else if let actual = actualScreenshotHotKey {
+            screenshotHotKeyTitle?.title = L10n.format("menu.screenshot_hotkey", actual.title)
+        } else {
+            screenshotHotKeyTitle?.title = L10n.tr("menu.screenshot_hotkey_unavailable")
+        }
+    }
+
+    private func showHotKeyRegistrationAlert(_ preset: HotKeyPreset) {
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("menu.screenshot")
+        alert.informativeText = L10n.format("screenshot.error.hotkey_registration_failed", preset.title)
+        alert.addButton(withTitle: L10n.tr("menu.settings"))
+        alert.addButton(withTitle: L10n.tr("screenshot.action.cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { presentSettings() }
+    }
+
+    @objc private func startScreenshotFromMenu() {
+        do { try screenshotController.startScreenshot() } catch { showScreenshotError(error) }
+    }
+
+    @objc private func pinClipboardFromMenu() {
+        do { try screenshotController.pinClipboardImage() } catch { showScreenshotError(error) }
+    }
+
+    private func showScreenshotError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("menu.screenshot")
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.tr("common.ok"))
+        // The overlay sits at .screenSaver level; the alert must float above it.
+        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     private func registerStartupHotKey(name: String, requested: HotKeyPreset, candidates: [HotKeyPreset],
@@ -189,6 +286,7 @@ import Carbon
     }
 
     private func presentSettings() {
+        screenshotController.cancel()
         hidePanel()
         hideClipboardPanel()
         if preferences == nil {
@@ -212,11 +310,21 @@ import Carbon
                                               modifiers: value.clipboardHotKey.modifiers) { [weak self] in
                 self?.toggleClipboardPanel()
             }
+            if let preset = value.screenshotHotKey {
+                try HotKeyManager.shared.register(name: "screenshot", keyCode: preset.keyCode,
+                                                  modifiers: preset.modifiers) { [weak self] in
+                    try? self?.screenshotController.startScreenshot()
+                }
+            } else {
+                HotKeyManager.shared.unregister(name: "screenshot")
+            }
             try settings.save(value)
             actualHotKey = value.hotKey
             actualClipboardHotKey = value.clipboardHotKey
+            actualScreenshotHotKey = value.screenshotHotKey
             hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
             clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
+            updateScreenshotHotKeyTitle()
             model.refreshPreferences()
         } catch {
             try? HotKeyManager.shared.register(name: "launcher", keyCode: previous.hotKey.keyCode,
@@ -227,6 +335,16 @@ import Carbon
                                                modifiers: previous.clipboardHotKey.modifiers) { [weak self] in
                 self?.toggleClipboardPanel()
             }
+            if let preset = previous.screenshotHotKey {
+                try? HotKeyManager.shared.register(name: "screenshot", keyCode: preset.keyCode,
+                                                   modifiers: preset.modifiers) { [weak self] in
+                    try? self?.screenshotController.startScreenshot()
+                }
+            } else {
+                HotKeyManager.shared.unregister(name: "screenshot")
+            }
+            actualScreenshotHotKey = previous.screenshotHotKey
+            updateScreenshotHotKeyTitle()
             throw error
         }
     }
@@ -274,6 +392,8 @@ import Carbon
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        screenshotController.cancel()
+        pinnedImageManager.closeAll()
         model.endSession()
         clipboardTimer?.invalidate()
         HotKeyManager.shared.unregister()

@@ -31,13 +31,26 @@
 "launcher.search_cancelled" = "搜索已取消";
 "launcher.action.open" = "打开";
 "launcher.action.reveal" = "在 Finder 显示";
+"launcher.badge.bookmarks" = "书签";
+"launcher.badge.files" = "文件";
+"launcher.badge.calculator" = "计算";
+"launcher.badge.web" = "网页";
+"launcher.badge.screenshot" = "截图";
+"launcher.keycap.open" = "↵ 打开";
+"launcher.keycap.reveal" = "↵ 显示";
+"launcher.keycap.copy" = "↵ 复制";
+"launcher.keycap.run" = "↵ 执行";
+"clipboard.badge.text" = "文本";
+"clipboard.badge.image" = "图片";
+"clipboard.badge.file" = "文件";
+"clipboard.keycap.restore" = "↵ 恢复";
 "search.error.too_long" = "输入过长，最多 512 个字符";
 "file_search.error.start" = "Spotlight 查询无法启动，请稍后重试。";
 "file_search.error.timeout" = "Spotlight 搜索超时，请缩小目录范围或检查索引。";
 
 "web_search.result.subtitle" = "回车在默认浏览器中搜索";
 "web_search.error.invalid_keyword" = "网页搜索关键词需为 1–32 个字母、数字、汉字、连字符或下划线，且不能包含空格。";
-"web_search.error.reserved_keyword" = "该关键词已被 bm、open 或 find 命令保留，请更换关键词。";
+"web_search.error.reserved_keyword" = "该关键词已被 bm、open、find、shot 或 pin 命令保留，请更换关键词。";
 "web_search.error.duplicate_keyword" = "网页搜索关键词不能重复，请更换关键词。";
 "web_search.error.invalid_title" = "网页搜索显示名称不能为空，且最多 80 个字符。";
 "web_search.error.invalid_url" = "搜索网址必须是有效的 HTTP/HTTPS 地址，包含 {query}，且不能包含账号密码。";
@@ -208,3 +221,55 @@
 "common.enabled" = "启用";
 "common.yes" = "是";
 "common.no" = "否";
+"common.ok" = "好";
+
+"menu.screenshot" = "截图";
+"menu.pin_clipboard" = "贴入剪贴板图片";
+"menu.screenshot_hotkey" = "截图（%@）";
+"menu.screenshot_hotkey_unavailable" = "截图（热键不可用，请打开设置）";
+"menu.screenshot_hotkey_not_set" = "截图（未设置热键）";
+
+"launcher.screenshot.capture" = "区域截图";
+"launcher.screenshot.capture_subtitle" = "拖拽选择区域，回车复制，Esc 取消";
+"launcher.screenshot.pin_clipboard" = "贴入剪贴板图片";
+"launcher.screenshot.pin_clipboard_subtitle" = "将剪贴板中的图片置顶显示在屏幕上";
+"launcher.screenshot_help" = "↵ 执行 · Esc 取消";
+
+"settings.page.screenshots" = "截图";
+"settings.screenshot_hotkey" = "截图热键";
+"settings.screenshots.description" = "区域截图、标注与贴图。";
+"settings.screenshot.commands_note" = "在启动器输入 shot 或「截图」开始区域截图，输入 pin 或「贴图」将剪贴板图片置顶。热键录入时按 Delete 可禁用截图热键。";
+"settings.warning.screenshot_hotkey_disabled" = "默认截图热键 ⌃⌥P 与现有热键冲突，已自动禁用截图热键。可在截图设置中重新指定。";
+
+"screenshot.permission.title" = "需要屏幕录制权限";
+"screenshot.permission.message" = "请在「系统设置 → 隐私与安全性 → 屏幕录制（或屏幕与系统音频录制）」中允许 Pennyworth，然后重新发起截图。打开设置会结束本次截图。若已开启权限仍出现此提示，请退出并重新打开 Pennyworth。";
+"screenshot.permission.open_settings" = "打开系统设置";
+"screenshot.permission.retry" = "重新检查";
+"screenshot.permission.settings_failed" = "无法打开屏幕录制设置，请手动打开系统设置。";
+"screenshot.action.cancel" = "取消";
+"screenshot.error.capture_failed" = "无法捕获屏幕，请检查屏幕录制权限后重试。";
+"screenshot.error.image_encoding" = "无法生成截图图片，请重试。";
+"screenshot.error.clipboard_image_missing" = "剪贴板中没有可用的图片。";
+"screenshot.error.clipboard_write" = "无法写入剪贴板，请重试。";
+"screenshot.error.save_failed" = "无法保存截图，请重试。";
+"screenshot.error.pin_limit" = "贴图数量或内存占用已达上限，请先关闭部分贴图。";
+"screenshot.error.session_active" = "截图会话已在进行中。";
+"screenshot.error.hotkey_registration_failed" = "无法注册截图热键 %@。该组合可能已被其他应用占用，请在设置中更换。";
+"action.error.screenshot_unavailable" = "截图功能不可用。";
+
+"screenshot.tool.selection" = "选择";
+"screenshot.tool.rectangle" = "矩形";
+"screenshot.tool.ellipse" = "椭圆";
+"screenshot.tool.arrow" = "箭头";
+"screenshot.tool.pen" = "画笔";
+"screenshot.tool.text" = "文字";
+"screenshot.tool.mosaic" = "马赛克";
+"screenshot.style.color" = "颜色";
+"screenshot.style.line_width" = "线宽";
+"screenshot.style.font_size" = "字号";
+"screenshot.action.copy" = "复制";
+"screenshot.action.save" = "保存";
+"screenshot.action.pin" = "贴图";
+"screenshot.action.undo" = "撤销";
+"screenshot.action.redo" = "重做";
+"screenshot.save.default_name" = "截图";

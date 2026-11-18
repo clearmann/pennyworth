@@ -19,6 +19,8 @@ enum QueryParser {
         case "bm": return request(.bookmarks, value)
         case "open": return request(.fileSearch(.open), value)
         case "find": return request(.fileSearch(.reveal), value)
+        case "shot", "screenshot", "截图": return request(.screenshot(.capture), value)
+        case "pin", "贴图": return request(.screenshot(.pinClipboard), value)
         default: break
         }
         if let definition = webSearches.first(where: { $0.isEnabled && $0.keyword.lowercased() == keyword }) {
