@@ -22,6 +22,7 @@ import Carbon
     private var actualScreenshotHotKey: HotKeyPreset?
     private var pinnedImageManager: PinnedImageManager!
     private var screenshotController: ScreenshotSessionController!
+    private var mouseScrollController: MouseScrollController!
     private var screenshotHotKeyAlertShown = false
     private var installedApplications: [AppItem] = []
     private let appShortcutLauncher: AppShortcutLaunching = AppShortcutLauncher()
@@ -99,6 +100,11 @@ import Carbon
 
         configureMenu()
         configureHotKeys()
+        mouseScrollController = MouseScrollController()
+        mouseScrollController.onStatusChange = { [weak self] _ in
+            self?.preferences?.reloadMouseStatus()
+        }
+        mouseScrollController.apply(settings.settings.mouseScroll, promptForPermission: false)
         refreshApplications()
         startClipboardMonitoring()
         if CommandLine.arguments.contains("--show") { showPanel() }
@@ -303,7 +309,20 @@ import Carbon
                 usage: usage,
                 bookmarks: bookmarks,
                 applicationsProvider: { [weak self] in self?.installedApplications ?? [] },
-                setHotKeySuspended: { HotKeyManager.shared.setSuspended($0) }
+                setHotKeySuspended: { HotKeyManager.shared.setSuspended($0) },
+                mousePermissionProvider: { [weak self] in
+                    guard let controller = self?.mouseScrollController else { return (.inactive, false) }
+                    return (controller.status, controller.isAccessibilityTrusted)
+                },
+                onRequestMousePermission: { [weak self] in
+                    self?.mouseScrollController.requestPermission()
+                },
+                onOpenMouseAccessibilitySettings: { [weak self] in
+                    self?.mouseScrollController.openAccessibilitySettings() ?? false
+                },
+                onRefreshMousePermission: { [weak self] in
+                    self?.mouseScrollController.refreshPermissionStatus()
+                }
             ) { [weak self] value in
                 try self?.applySettings(value)
             }
@@ -347,6 +366,10 @@ import Carbon
         actualHotKey = value.hotKey
         actualClipboardHotKey = value.clipboardHotKey
         actualScreenshotHotKey = value.screenshotHotKey
+        mouseScrollController.apply(
+            value.mouseScroll,
+            promptForPermission: value.mouseScroll.isActive && !previous.mouseScroll.isActive
+        )
         hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
         clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
         updateScreenshotHotKeyTitle()
@@ -398,6 +421,7 @@ import Carbon
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mouseScrollController?.stop()
         screenshotController.cancel()
         pinnedImageManager.closeAll()
         model.endSession()

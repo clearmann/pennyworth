@@ -298,3 +298,27 @@
 "app_shortcuts.error.invalid_app" = "请选择有效的 .app 应用程序。";
 "app_shortcuts.error.missing_hotkey" = "请先为每个应用录制快捷键后再保存。";
 "app_shortcuts.error.duplicate_hotkey" = "快捷键“%@”已被其他功能或应用占用，请更换组合。";
+
+"settings.page.mouse" = "鼠标";
+"settings.mouse.description" = "独立反转物理鼠标滚轮方向（不影响触控板），并为普通鼠标提供平滑惯性滚动。";
+"settings.mouse.note" = "仅对物理鼠标滚轮全局生效；触控板手势以及按住 Command/Control 缩放滚轮不受影响。点击保存生效。";
+"mouse.reverse_scroll" = "独立反转鼠标滚轮方向（不影响触控板）";
+"mouse.reverse_scroll_accessibility" = "反转鼠标滚轮方向";
+"mouse.smooth_scroll" = "启用鼠标平滑滚动";
+"mouse.smooth_scroll_accessibility" = "启用平滑滚动";
+"mouse.scroll_speed" = "滚动速度";
+"mouse.smoothness" = "平滑度";
+"mouse.smoothness.crisp" = "干脆";
+"mouse.smoothness.balanced" = "标准";
+"mouse.smoothness.silky" = "柔和";
+"mouse.reset_defaults" = "恢复默认";
+"mouse.permission.request" = "请求权限";
+"mouse.permission.open_settings" = "打开系统设置";
+"mouse.permission.refresh" = "重新检查";
+"mouse.permission.settings_failed" = "无法打开辅助功能设置，请手动打开系统设置。";
+"mouse.permission.status.active" = "辅助功能权限：已授权 · 鼠标滚轮增强已生效。";
+"mouse.permission.status.granted" = "辅助功能权限：已授权（勾选下方选项并保存后立即生效）。";
+"mouse.permission.status.not_granted" = "辅助功能权限：未授权（启用鼠标滚轮增强需要此权限）。";
+"mouse.permission.status.awaiting" = "等待辅助功能权限：请在「系统设置 → 隐私与安全性 → 辅助功能」中允许 Pennyworth，授权后将自动生效。";
+"mouse.permission.status.tap_failed" = "已获得辅助功能权限，但滚轮事件监听启动失败，请尝试退出并重新打开 Pennyworth。";
+"mouse.error.invalid_speed" = "滚动速度必须在 0.5x 至 3.0x 之间。";

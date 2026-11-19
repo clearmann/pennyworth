@@ -130,12 +130,13 @@ struct LauncherSettings: Codable, Equatable {
     /// nil means the user disabled the screenshot hotkey (Delete in the recorder).
     let screenshotHotKey: HotKeyPreset?
     let appShortcuts: [AppShortcut]
+    let mouseScroll: MouseScrollSettings
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
          rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
          fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC,
          language: AppLanguage = .system, screenshotHotKey: HotKeyPreset? = .controlOptionP,
-         appShortcuts: [AppShortcut] = []) {
+         appShortcuts: [AppShortcut] = [], mouseScroll: MouseScrollSettings = .defaults) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
@@ -146,11 +147,13 @@ struct LauncherSettings: Codable, Equatable {
         self.language = language
         self.screenshotHotKey = screenshotHotKey
         self.appShortcuts = appShortcuts
+        self.mouseScroll = mouseScroll
     }
 
     private enum CodingKeys: String, CodingKey {
         case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage
         case fallbackOnlyWhenNoResults, clipboardHotKey, language, screenshotHotKey, appShortcuts
+        case mouseScroll
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +168,7 @@ struct LauncherSettings: Codable, Equatable {
         clipboardHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .clipboardHotKey) ?? .optionCommandC
         language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         appShortcuts = try values.decodeIfPresent([AppShortcut].self, forKey: .appShortcuts) ?? []
+        mouseScroll = try values.decodeIfPresent(MouseScrollSettings.self, forKey: .mouseScroll) ?? .defaults
         if values.contains(.screenshotHotKey) {
             // An explicit JSON null is a deliberate user disable.
             screenshotHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .screenshotHotKey)
@@ -200,6 +204,7 @@ struct LauncherSettings: Codable, Equatable {
             try values.encodeNil(forKey: .screenshotHotKey)
         }
         try values.encode(appShortcuts, forKey: .appShortcuts)
+        try values.encode(mouseScroll, forKey: .mouseScroll)
     }
 }
 
@@ -271,6 +276,7 @@ final class SettingsStore {
             value.appShortcuts,
             reservedHotKeys: reservedHotKeys
         )
+        try MouseScrollSettings.validate(value.mouseScroll)
     }
 
     static func isValidAppShortcutBinding(_ binding: HotKeyPreset) -> Bool {

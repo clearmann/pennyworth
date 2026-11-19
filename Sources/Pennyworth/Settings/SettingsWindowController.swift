@@ -6,7 +6,7 @@ private final class SettingsPageHost: NSView {
 
 @MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static var pageTitles: [String] {
-        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots"].map {
+        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots", "mouse"].map {
             L10n.tr("settings.page.\($0)")
         }
     }
@@ -15,11 +15,16 @@ private final class SettingsPageHost: NSView {
     private let bookmarks: BookmarkStore?
     private let applicationsProvider: () -> [AppItem]
     private let setHotKeySuspended: (Bool) -> Void
+    private let mousePermissionProvider: () -> (MouseScrollController.RuntimeStatus, Bool)
+    private let onRequestMousePermission: () -> Void
+    private let onOpenMouseAccessibilitySettings: () -> Bool
+    private let onRefreshMousePermission: () -> Void
     private let apply: (LauncherSettings) throws -> Void
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
     private let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP)
     private let appShortcutsSettings = AppShortcutsSettingsView()
+    private let mouseScrollSettings = MouseScrollSettingsView()
     private let engine = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let webSearchSettings = WebSearchSettingsView()
@@ -47,12 +52,20 @@ private final class SettingsPageHost: NSView {
     init(store: SettingsStore, usage: UsageStore, bookmarks: BookmarkStore? = nil,
          applicationsProvider: @escaping () -> [AppItem] = { [] },
          setHotKeySuspended: @escaping (Bool) -> Void = { _ in },
+         mousePermissionProvider: @escaping () -> (MouseScrollController.RuntimeStatus, Bool) = { (.inactive, false) },
+         onRequestMousePermission: @escaping () -> Void = {},
+         onOpenMouseAccessibilitySettings: @escaping () -> Bool = { false },
+         onRefreshMousePermission: @escaping () -> Void = {},
          apply: @escaping (LauncherSettings) throws -> Void) {
         self.store = store
         self.usage = usage
         self.bookmarks = bookmarks
         self.applicationsProvider = applicationsProvider
         self.setHotKeySuspended = setHotKeySuspended
+        self.mousePermissionProvider = mousePermissionProvider
+        self.onRequestMousePermission = onRequestMousePermission
+        self.onOpenMouseAccessibilitySettings = onOpenMouseAccessibilitySettings
+        self.onRefreshMousePermission = onRefreshMousePermission
         self.apply = apply
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -77,12 +90,19 @@ private final class SettingsPageHost: NSView {
         appShortcutsSettings.updateAvailableApps(apps)
     }
 
+    func reloadMouseStatus() {
+        let state = mousePermissionProvider()
+        mouseScrollSettings.updatePermissionStatus(state.0, isTrusted: state.1)
+    }
+
     override func showWindow(_ sender: Any?) {
         let value = store.settings
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
         screenshotHotKeyRecorder.setBinding(value.screenshotHotKey)
         appShortcutsSettings.reload(value.appShortcuts, availableApps: applicationsProvider())
+        let mouseState = mousePermissionProvider()
+        mouseScrollSettings.reload(value.mouseScroll, status: mouseState.0, isTrusted: mouseState.1)
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
         webSearchSettings.reload(value.webSearches)
@@ -104,6 +124,22 @@ private final class SettingsPageHost: NSView {
         clipboardHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
         screenshotHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
         appShortcutsSettings.onRecordingStateChanged = setHotKeySuspended
+        mouseScrollSettings.onRequestPermission = { [weak self] in
+            self?.onRequestMousePermission()
+            self?.reloadMouseStatus()
+        }
+        mouseScrollSettings.onOpenAccessibilitySettings = { [weak self] in
+            guard let self else { return false }
+            let opened = self.onOpenMouseAccessibilitySettings()
+            if !opened {
+                self.feedback.stringValue = L10n.tr("mouse.permission.settings_failed")
+            }
+            return opened
+        }
+        mouseScrollSettings.onRefreshPermission = { [weak self] in
+            self?.onRefreshMousePermission()
+            self?.reloadMouseStatus()
+        }
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
         languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
@@ -124,7 +160,7 @@ private final class SettingsPageHost: NSView {
         nav.alignment = .leading
         nav.spacing = 6
         nav.translatesAutoresizingMaskIntoConstraints = false
-        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder"]
+        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder", "computermouse"]
         for (index, title) in Self.pageTitles.enumerated() {
             let button = NSButton(title: title, target: self, action: #selector(navigate(_:)))
             button.setButtonType(.pushOnPushOff)
@@ -246,6 +282,13 @@ private final class SettingsPageHost: NSView {
             row(L10n.tr("settings.screenshot_hotkey"), screenshotHotKeyRecorder),
             note(L10n.tr("settings.screenshot.commands_note")),
         ])
+        addPage(L10n.tr("settings.page.mouse"), description: L10n.tr("settings.mouse.description"), controls: [
+            mouseScrollSettings,
+            note(L10n.tr("settings.mouse.note")),
+        ])
+        if let page = pages[L10n.tr("settings.page.mouse")] {
+            mouseScrollSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        }
         // Bookmark state is loaded after the window is first presented.
     }
 
@@ -468,9 +511,11 @@ private final class SettingsPageHost: NSView {
                                          clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
                                          language: AppLanguage.allCases[languagePopup.indexOfSelectedItem],
                                          screenshotHotKey: screenshotHotKeyRecorder.binding,
-                                         appShortcuts: appShortcuts)
+                                         appShortcuts: appShortcuts,
+                                         mouseScroll: mouseScrollSettings.currentSettings)
             let languageChanged = value.language != store.settings.language
             try apply(value)
+            reloadMouseStatus()
             feedback.stringValue = languageChanged ? L10n.tr("settings.restart_required") : L10n.tr("settings.saved")
         } catch {
             feedback.stringValue = error.localizedDescription

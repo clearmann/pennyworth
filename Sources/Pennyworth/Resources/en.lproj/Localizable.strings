@@ -298,3 +298,27 @@
 "app_shortcuts.error.invalid_app" = "Choose a valid .app application bundle.";
 "app_shortcuts.error.missing_hotkey" = "Record a keyboard shortcut for every application entry before saving.";
 "app_shortcuts.error.duplicate_hotkey" = "The shortcut “%@” is already assigned to another action or application.";
+
+"settings.page.mouse" = "Mouse";
+"settings.mouse.description" = "Reverse physical mouse wheel scrolling independently of the trackpad and enable smooth inertial scrolling.";
+"settings.mouse.note" = "Applies globally to physical mouse wheels only; trackpad gestures and Command/Control zoom scrolling remain untouched. Click Save to apply.";
+"mouse.reverse_scroll" = "Reverse mouse wheel scroll direction (independent of trackpad)";
+"mouse.reverse_scroll_accessibility" = "Reverse mouse wheel scroll direction";
+"mouse.smooth_scroll" = "Enable smooth mouse wheel scrolling";
+"mouse.smooth_scroll_accessibility" = "Enable smooth scrolling";
+"mouse.scroll_speed" = "Scroll Speed";
+"mouse.smoothness" = "Smoothness";
+"mouse.smoothness.crisp" = "Crisp";
+"mouse.smoothness.balanced" = "Balanced";
+"mouse.smoothness.silky" = "Silky";
+"mouse.reset_defaults" = "Reset to Defaults";
+"mouse.permission.request" = "Request Permission";
+"mouse.permission.open_settings" = "Open System Settings";
+"mouse.permission.refresh" = "Check Again";
+"mouse.permission.settings_failed" = "Could not open Accessibility settings. Please open System Settings manually.";
+"mouse.permission.status.active" = "Accessibility Permission: Granted · Mouse scroll enhancement is active.";
+"mouse.permission.status.granted" = "Accessibility Permission: Granted (enable an option below and save to activate).";
+"mouse.permission.status.not_granted" = "Accessibility Permission: Not granted (required to modify mouse wheel scrolling).";
+"mouse.permission.status.awaiting" = "Waiting for Accessibility Permission: allow Pennyworth in System Settings → Privacy & Security → Accessibility. It will activate automatically once granted.";
+"mouse.permission.status.tap_failed" = "Accessibility is granted, but the scroll event monitor failed to start. Try quitting and reopening Pennyworth.";
+"mouse.error.invalid_speed" = "Scroll speed must be between 0.5x and 3.0x.";
