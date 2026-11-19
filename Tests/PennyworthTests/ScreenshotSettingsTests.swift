@@ -110,4 +110,77 @@ final class ScreenshotSettingsTests: XCTestCase {
         // F13–F20 may be used without modifiers.
         XCTAssertNoThrow(try store.save(settings(screenshot: .custom(keyCode: UInt32(kVK_F13), modifiers: 0))))
     }
+
+    func testScreenshotConflictingWithAppShortcutIsRejected() {
+        let store = SettingsStore(defaults: makeDefaults())
+        let shortcut = AppShortcut(
+            id: "app.wechat",
+            bundleIdentifier: "com.tencent.xinWeChat",
+            appPath: "/Applications/WeChat.app",
+            appName: "微信",
+            hotKey: .custom(keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(controlKey | optionKey))
+        )
+        let conflicting = LauncherSettings(
+            hotKey: .optionSpace,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            screenshotHotKey: .controlOptionP,
+            appShortcuts: [shortcut]
+        )
+        XCTAssertThrowsError(try store.save(conflicting))
+
+        let nonConflicting = LauncherSettings(
+            hotKey: .optionSpace,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            screenshotHotKey: nil,
+            appShortcuts: [shortcut]
+        )
+        XCTAssertNoThrow(try store.save(nonConflicting))
+    }
+
+    func testLegacyCollisionWithAppShortcutMigratesScreenshotToDisabledWithWarning() throws {
+        let defaults = makeDefaults()
+        let legacy = """
+        {"hotKey":"optionSpace","searchDirectories":[],"searchEngine":"google","rememberUsage":true,
+        "clipboardHotKey":"optionCommandC",
+        "appShortcuts":[{"id":"app.1","bundleIdentifier":"com.apple.Safari","appPath":"/Applications/Safari.app",
+        "appName":"Safari","hotKey":{"keyCode":35,"modifiers":6144},"isEnabled":true}]}
+        """
+        defaults.set(Data(legacy.utf8), forKey: "launcher.settings.v1")
+
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertNil(store.settings.screenshotHotKey)
+        XCTAssertEqual(store.settings.appShortcuts.count, 1)
+        XCTAssertEqual(store.settings.appShortcuts.first?.appName, "Safari")
+        XCTAssertNotNil(store.warning)
+    }
+
+    func testScreenshotAndAppShortcutsRoundTripTogether() throws {
+        let defaults = makeDefaults()
+        let store = SettingsStore(defaults: defaults)
+        let shortcut = AppShortcut(
+            id: "app.wechat",
+            bundleIdentifier: "com.tencent.xinWeChat",
+            appPath: "/Applications/WeChat.app",
+            appName: "微信",
+            hotKey: .custom(keyCode: 13, modifiers: HotKeyModifiers.rightCommand)
+        )
+        let saved = LauncherSettings(
+            hotKey: .optionSpace,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            screenshotHotKey: nil,
+            appShortcuts: [shortcut]
+        )
+        try store.save(saved)
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertNil(reloaded.settings.screenshotHotKey)
+        XCTAssertEqual(reloaded.settings.appShortcuts, [shortcut])
+        XCTAssertNil(reloaded.warning)
+    }
 }

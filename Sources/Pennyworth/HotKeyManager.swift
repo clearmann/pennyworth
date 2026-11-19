@@ -19,25 +19,63 @@ protocol HotKeyBackend: AnyObject {
 }
 
 final class HotKeyManager {
-    static let shared = HotKeyManager(backend: CarbonHotKeyBackend())
+    static let shared = HotKeyManager(
+        backend: CarbonHotKeyBackend(),
+        modifierMonitor: SystemRightCommandMonitor()
+    )
+
+    private struct CarbonSlot: Hashable {
+        let keyCode: UInt32
+        let modifiers: UInt32
+    }
+
     private struct Registration {
-        let id: UInt32
         let keyCode: UInt32
         let modifiers: UInt32
         let callback: () -> Void
+
+        var usesRightCommand: Bool {
+            HotKeyModifiers.usesRightCommand(modifiers)
+        }
+
+        var carbonSlot: CarbonSlot {
+            CarbonSlot(
+                keyCode: keyCode,
+                modifiers: HotKeyModifiers.carbonModifiers(for: modifiers)
+            )
+        }
     }
 
     private let backend: HotKeyBackend
+    private let modifierMonitor: RightCommandMonitoring
+    private let rightCommandTap: RightCommandTap
     private let legacyName = "default"
+    private let logger = Logger(subsystem: "com.clearmann.pennyworth", category: "HotKey")
     private var installed = false
     private var nextID: UInt32 = 1
     private var registrations: [String: Registration] = [:]
+    private var activeSlots: [CarbonSlot: UInt32] = [:]
+    private var isRightCommandActive = false
+    private var isMonitoringRightCommand = false
+    private var isSuspended = false
+
     private(set) var currentID: UInt32?
     private(set) var currentKey: UInt32?
     private(set) var currentModifiers: UInt32?
     var onHotKey: (() -> Void)?
 
-    init(backend: HotKeyBackend) { self.backend = backend }
+    init(backend: HotKeyBackend, modifierMonitor: RightCommandMonitoring = SystemRightCommandMonitor(),
+         inputWasQuietSince: @escaping (TimeInterval) -> Bool = RightCommandTap.sessionInputWasQuiet) {
+        self.backend = backend
+        self.modifierMonitor = modifierMonitor
+        self.rightCommandTap = RightCommandTap(inputWasQuietSince: inputWasQuietSince)
+    }
+
+    private var f19Launcher: Registration? {
+        guard let launcher = registrations["launcher"], launcher.keyCode == UInt32(kVK_F19),
+              launcher.modifiers == 0 else { return nil }
+        return launcher
+    }
 
     func register(keyCode: UInt32 = UInt32(kVK_Space), modifiers: UInt32 = UInt32(optionKey)) throws {
         try register(name: legacyName, keyCode: keyCode, modifiers: modifiers) { [weak self] in
@@ -46,33 +84,154 @@ final class HotKeyManager {
     }
 
     func register(name: String, keyCode: UInt32, modifiers: UInt32, callback: @escaping () -> Void) throws {
-        if let current = registrations[name], current.keyCode == keyCode, current.modifiers == modifiers { return }
+        if let current = registrations[name], current.keyCode == keyCode, current.modifiers == modifiers {
+            registrations = registrations.merging([name: Registration(keyCode: keyCode, modifiers: modifiers, callback: callback)]) { _, new in new }
+            return
+        }
+        let hasDuplicate = registrations.contains { otherName, existing in
+            otherName != name && existing.keyCode == keyCode && existing.modifiers == modifiers
+        }
+        guard !hasDuplicate else {
+            throw HotKeyError.registrationFailed(OSStatus(eventHotKeyExistsErr))
+        }
         if !installed {
             try backend.install { [weak self] id in self?.handle(id: id) }
             installed = true
         }
-        let id = nextID
-        try backend.register(keyCode: keyCode, modifiers: modifiers, id: id)
-        if let current = registrations[name] { backend.unregister(id: current.id) }
-        registrations[name] = Registration(id: id, keyCode: keyCode, modifiers: modifiers, callback: callback)
+        let candidate = Registration(keyCode: keyCode, modifiers: modifiers, callback: callback)
+        if candidate.usesRightCommand && !isMonitoringRightCommand {
+            isRightCommandActive = modifierMonitor.currentRightCommandState()
+        }
+        try prepareSlotForRegistration(candidate)
+        let previous = registrations[name]
+        registrations = registrations.merging([name: candidate]) { _, new in new }
+        if let previous, !shouldKeepSlotActive(previous.carbonSlot) {
+            unregisterSlot(previous.carbonSlot)
+        }
+        syncModifierMonitoring()
         updateLegacyState()
-        nextID &+= 1
     }
 
     func unregister(name: String) {
-        guard let registration = registrations.removeValue(forKey: name) else { return }
-        backend.unregister(id: registration.id)
+        guard registrations[name] != nil else { return }
+        registrations = registrations.filter { $0.key != name }
+        reconcileActiveSlots()
+        syncModifierMonitoring()
         updateLegacyState()
     }
 
     func unregister() {
-        for registration in registrations.values { backend.unregister(id: registration.id) }
+        for id in activeSlots.values { backend.unregister(id: id) }
+        activeSlots = [:]
         registrations = [:]
+        stopModifierMonitoring()
         updateLegacyState()
     }
 
+    func setSuspended(_ suspended: Bool) {
+        guard isSuspended != suspended else { return }
+        isSuspended = suspended
+        rightCommandTap.cancel()
+        if !suspended && isMonitoringRightCommand {
+            isRightCommandActive = modifierMonitor.currentRightCommandState()
+        }
+        reconcileActiveSlots()
+    }
+
+    private func prepareSlotForRegistration(_ candidate: Registration) throws {
+        let slot = candidate.carbonSlot
+        guard activeSlots[slot] == nil else { return }
+        let needsActiveNow = !isSuspended && (!candidate.usesRightCommand || isRightCommandActive)
+        let id = allocateID()
+        try backend.register(keyCode: slot.keyCode, modifiers: slot.modifiers, id: id)
+        if needsActiveNow {
+            activeSlots = activeSlots.merging([slot: id]) { _, new in new }
+        } else {
+            backend.unregister(id: id)
+        }
+    }
+
+    private func handleRightCommandChange(_ change: RightCommandChange) {
+        let wasActive = isRightCommandActive
+        if wasActive != change.isActive {
+            isRightCommandActive = change.isActive
+            reconcileActiveSlots()
+        }
+        guard !isSuspended, let launcher = f19Launcher, activeSlots[launcher.carbonSlot] != nil else {
+            rightCommandTap.cancel()
+            return
+        }
+        if rightCommandTap.completesTap(change, wasActive: wasActive) { launcher.callback() }
+    }
+
+    private func reconcileActiveSlots() {
+        for slot in Array(activeSlots.keys) where !shouldKeepSlotActive(slot) {
+            unregisterSlot(slot)
+        }
+        guard !isSuspended else { return }
+        for registration in registrations.values {
+            let slot = registration.carbonSlot
+            guard shouldKeepSlotActive(slot), activeSlots[slot] == nil else { continue }
+            let id = allocateID()
+            do {
+                try backend.register(keyCode: slot.keyCode, modifiers: slot.modifiers, id: id)
+                activeSlots = activeSlots.merging([slot: id]) { _, new in new }
+            } catch {
+                logger.error("动态热键挂载失败（keyCode=\(slot.keyCode)）：\(error.localizedDescription)")
+            }
+        }
+        updateLegacyState()
+    }
+
+    private func shouldKeepSlotActive(_ slot: CarbonSlot) -> Bool {
+        guard !isSuspended else { return false }
+        return registrations.values.contains { registration in
+            registration.carbonSlot == slot && (!registration.usesRightCommand || isRightCommandActive)
+        }
+    }
+
+    private func unregisterSlot(_ slot: CarbonSlot) {
+        guard let id = activeSlots[slot] else { return }
+        backend.unregister(id: id)
+        activeSlots = activeSlots.filter { $0.key != slot }
+    }
+
+    private func syncModifierMonitoring() {
+        rightCommandTap.cancel()
+        let needsMonitoring = f19Launcher != nil || registrations.values.contains { $0.usesRightCommand }
+        if needsMonitoring && !isMonitoringRightCommand {
+            isMonitoringRightCommand = true
+            isRightCommandActive = modifierMonitor.currentRightCommandState()
+            modifierMonitor.start { [weak self] change in self?.handleRightCommandChange(change) }
+            reconcileActiveSlots()
+        } else if !needsMonitoring && isMonitoringRightCommand {
+            stopModifierMonitoring()
+        }
+    }
+
+    private func stopModifierMonitoring() {
+        guard isMonitoringRightCommand else { return }
+        modifierMonitor.stop()
+        isMonitoringRightCommand = false
+        isRightCommandActive = false
+    }
+
+    private func allocateID() -> UInt32 {
+        defer { nextID &+= 1 }
+        return nextID
+    }
+
     private func handle(id: UInt32) {
-        registrations.values.first(where: { $0.id == id })?.callback()
+        guard !isSuspended,
+              let slot = activeSlots.first(where: { $0.value == id })?.key else { return }
+        rightCommandTap.cancel()
+        let rightMatch = registrations.values.first { $0.carbonSlot == slot && $0.usesRightCommand }
+        let standardMatch = registrations.values.first { $0.carbonSlot == slot && !$0.usesRightCommand }
+        if isRightCommandActive {
+            (rightMatch ?? standardMatch)?.callback()
+        } else {
+            standardMatch?.callback()
+        }
     }
 
     private func updateLegacyState() {
@@ -82,7 +241,7 @@ final class HotKeyManager {
             currentModifiers = nil
             return
         }
-        currentID = registration.id
+        currentID = activeSlots[registration.carbonSlot]
         currentKey = registration.keyCode
         currentModifiers = registration.modifiers
     }
