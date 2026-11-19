@@ -18,6 +18,8 @@ import Carbon
     private var clipboardHotKeyTitle: NSMenuItem?
     private var actualHotKey: HotKeyPreset?
     private var actualClipboardHotKey: HotKeyPreset?
+    private var installedApplications: [AppItem] = []
+    private let appShortcutLauncher: AppShortcutLaunching = AppShortcutLauncher()
     private var scanTask: Task<Void, Never>?
     private var clipboardTimer: Timer?
     private let focusRestorer = ApplicationFocusRestorer(frontmostApplication: {
@@ -99,6 +101,12 @@ import Carbon
         try? HotKeyManager.shared.register(name: "settings", keyCode: HotKeyPreset.commandComma.keyCode,
                                             modifiers: HotKeyPreset.commandComma.modifiers) { [weak self] in
             self?.showSettings()
+        }
+        HotKeyConfigurationApplier.registerStartupAppShortcuts(
+            settings.settings.appShortcuts,
+            in: HotKeyManager.shared
+        ) { [weak self] shortcut in
+            self?.triggerAppShortcut(shortcut)
         }
         hotKeyTitle?.title = actualHotKey.map { L10n.format("menu.show_launcher_hotkey", $0.title) }
             ?? L10n.tr("menu.launcher_hotkey_unavailable")
@@ -192,7 +200,13 @@ import Carbon
         hidePanel()
         hideClipboardPanel()
         if preferences == nil {
-            preferences = SettingsWindowController(store: settings, usage: usage, bookmarks: bookmarks) { [weak self] value in
+            preferences = SettingsWindowController(
+                store: settings,
+                usage: usage,
+                bookmarks: bookmarks,
+                applicationsProvider: { [weak self] in self?.installedApplications ?? [] },
+                setHotKeySuspended: { HotKeyManager.shared.setSuspended($0) }
+            ) { [weak self] value in
                 try self?.applySettings(value)
             }
         }
@@ -201,34 +215,28 @@ import Carbon
         preferences?.window?.makeKeyAndOrderFront(nil)
     }
 
+    private func triggerAppShortcut(_ shortcut: AppShortcut) {
+        hidePanel()
+        hideClipboardPanel()
+        appShortcutLauncher.launch(shortcut)
+    }
+
     private func applySettings(_ value: LauncherSettings) throws {
         let previous = settings.settings
-        do {
-            try HotKeyManager.shared.register(name: "launcher", keyCode: value.hotKey.keyCode,
-                                              modifiers: value.hotKey.modifiers) { [weak self] in
-                self?.togglePanel()
-            }
-            try HotKeyManager.shared.register(name: "clipboard", keyCode: value.clipboardHotKey.keyCode,
-                                              modifiers: value.clipboardHotKey.modifiers) { [weak self] in
-                self?.toggleClipboardPanel()
-            }
-            try settings.save(value)
-            actualHotKey = value.hotKey
-            actualClipboardHotKey = value.clipboardHotKey
-            hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
-            clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
-            model.refreshPreferences()
-        } catch {
-            try? HotKeyManager.shared.register(name: "launcher", keyCode: previous.hotKey.keyCode,
-                                               modifiers: previous.hotKey.modifiers) { [weak self] in
-                self?.togglePanel()
-            }
-            try? HotKeyManager.shared.register(name: "clipboard", keyCode: previous.clipboardHotKey.keyCode,
-                                               modifiers: previous.clipboardHotKey.modifiers) { [weak self] in
-                self?.toggleClipboardPanel()
-            }
-            throw error
-        }
+        try HotKeyConfigurationApplier.apply(
+            next: value,
+            previous: previous,
+            manager: HotKeyManager.shared,
+            onLauncher: { [weak self] in self?.togglePanel() },
+            onClipboard: { [weak self] in self?.toggleClipboardPanel() },
+            onAppShortcut: { [weak self] shortcut in self?.triggerAppShortcut(shortcut) }
+        )
+        try settings.save(value)
+        actualHotKey = value.hotKey
+        actualClipboardHotKey = value.clipboardHotKey
+        hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
+        clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
+        model.refreshPreferences()
     }
 
     private func startClipboardMonitoring() {
@@ -266,7 +274,9 @@ import Carbon
                 AppScanner.scanInstalledApplications(language: language)
             }.value
             guard let self else { return }
+            self.installedApplications = apps
             self.model.setApplications(apps)
+            self.preferences?.reloadApplications(apps)
             self.scanTask = nil
         }
     }

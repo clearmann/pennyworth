@@ -48,15 +48,9 @@ enum HotKeyPreset: Equatable, Codable {
 
     static let launcherPresets: [HotKeyPreset] = [.optionSpace, .optionShiftSpace, .controlOptionSpace]
     static let clipboardPresets: [HotKeyPreset] = [.optionCommandC, .controlOptionC]
-    private static let extendedFunctionKeys: [UInt32: String] = [
-        UInt32(kVK_F13): "F13", UInt32(kVK_F14): "F14",
-        UInt32(kVK_F15): "F15", UInt32(kVK_F16): "F16",
-        UInt32(kVK_F17): "F17", UInt32(kVK_F18): "F18",
-        UInt32(kVK_F19): "F19", UInt32(kVK_F20): "F20",
-    ]
 
     static func supportsWithoutModifier(_ keyCode: UInt32) -> Bool {
-        extendedFunctionKeys[keyCode] != nil
+        HotKeyKeyCodeTitles.extendedFunctionKeys[keyCode] != nil
     }
 
     private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
@@ -103,6 +97,9 @@ enum HotKeyPreset: Equatable, Codable {
 
     private static func modifierTitle(_ modifiers: UInt32) -> String {
         var title = ""
+        if HotKeyModifiers.usesRightCommand(modifiers) {
+            title += L10n.tr("hotkey.modifier.right_command")
+        }
         if modifiers & UInt32(cmdKey) != 0 { title += "⌘" }
         if modifiers & UInt32(optionKey) != 0 { title += "⌥" }
         if modifiers & UInt32(controlKey) != 0 { title += "⌃" }
@@ -111,12 +108,7 @@ enum HotKeyPreset: Equatable, Codable {
     }
 
     private static func keyTitle(_ keyCode: UInt32) -> String {
-        if keyCode == UInt32(kVK_Space) { return "Space" }
-        if keyCode == UInt32(kVK_ANSI_C) { return "C" }
-        if keyCode == UInt32(kVK_ANSI_P) { return "P" }
-        if keyCode == UInt32(kVK_ANSI_Comma) { return "," }
-        if let functionKey = extendedFunctionKeys[keyCode] { return functionKey }
-        return "Key \(keyCode)"
+        HotKeyKeyCodeTitles.title(for: keyCode)
     }
 }
 
@@ -129,11 +121,12 @@ struct LauncherSettings: Codable, Equatable {
     let fallbackOnlyWhenNoResults: Bool
     let clipboardHotKey: HotKeyPreset
     let language: AppLanguage
+    let appShortcuts: [AppShortcut]
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
          rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
          fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC,
-         language: AppLanguage = .system) {
+         language: AppLanguage = .system, appShortcuts: [AppShortcut] = []) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
@@ -142,10 +135,12 @@ struct LauncherSettings: Codable, Equatable {
         self.fallbackOnlyWhenNoResults = fallbackOnlyWhenNoResults
         self.clipboardHotKey = clipboardHotKey
         self.language = language
+        self.appShortcuts = appShortcuts
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage, fallbackOnlyWhenNoResults, clipboardHotKey, language
+        case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage
+        case fallbackOnlyWhenNoResults, clipboardHotKey, language, appShortcuts
     }
 
     init(from decoder: Decoder) throws {
@@ -159,6 +154,7 @@ struct LauncherSettings: Codable, Equatable {
         fallbackOnlyWhenNoResults = try values.decodeIfPresent(Bool.self, forKey: .fallbackOnlyWhenNoResults) ?? false
         clipboardHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .clipboardHotKey) ?? .optionCommandC
         language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
+        appShortcuts = try values.decodeIfPresent([AppShortcut].self, forKey: .appShortcuts) ?? []
     }
 
     static let defaults = LauncherSettings(hotKey: .optionSpace, searchDirectories: [],
@@ -194,7 +190,7 @@ final class SettingsStore {
         warning = nil
     }
 
-    private static func validate(_ value: LauncherSettings) throws {
+    static func validate(_ value: LauncherSettings) throws {
         try WebSearchDefinition.validate(value.webSearches)
         guard value.searchDirectories.count <= 32,
               value.searchDirectories.allSatisfy({ $0.hasPrefix("/") && !$0.contains("\0") }) else {
@@ -207,6 +203,17 @@ final class SettingsStore {
               value.hotKey.keyCode != value.clipboardHotKey.keyCode || value.hotKey.modifiers != value.clipboardHotKey.modifiers else {
             throw SettingsError.invalidHotKeys
         }
+        try AppShortcut.validate(
+            value.appShortcuts,
+            reservedHotKeys: [value.hotKey, value.clipboardHotKey, .commandComma]
+        )
+    }
+
+    static func isValidAppShortcutBinding(_ binding: HotKeyPreset) -> Bool {
+        if HotKeyPreset.launcherPresets.contains(binding) || HotKeyPreset.clipboardPresets.contains(binding) {
+            return true
+        }
+        return isValidCustomBinding(binding)
     }
 
     private enum BindingGroup { case launcher, clipboard }
@@ -214,11 +221,15 @@ final class SettingsStore {
     private static func isValidBinding(_ binding: HotKeyPreset, allowed: BindingGroup) -> Bool {
         if allowed == .launcher && HotKeyPreset.launcherPresets.contains(binding) { return true }
         if allowed == .clipboard && HotKeyPreset.clipboardPresets.contains(binding) { return true }
+        return isValidCustomBinding(binding)
+    }
+
+    private static func isValidCustomBinding(_ binding: HotKeyPreset) -> Bool {
         guard case .custom(let keyCode, let modifiers) = binding else { return false }
-        let allowedModifiers = UInt32(cmdKey | optionKey | controlKey | shiftKey)
         return keyCode <= UInt32(UInt16.max)
+            && !HotKeyModifiers.hasConflictingCommandFlags(modifiers)
             && (modifiers != 0 || HotKeyPreset.supportsWithoutModifier(keyCode))
-            && modifiers & ~allowedModifiers == 0
+            && modifiers & ~HotKeyModifiers.allowedModifiers == 0
     }
 }
 

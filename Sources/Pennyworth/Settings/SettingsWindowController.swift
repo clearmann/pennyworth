@@ -4,18 +4,21 @@ private final class SettingsPageHost: NSView {
     override var isFlipped: Bool { true }
 }
 
-@MainActor final class SettingsWindowController: NSWindowController {
+@MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static var pageTitles: [String] {
-        ["general", "default_results", "file_search", "web_search", "bookmarks", "calculator"].map {
+        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator"].map {
             L10n.tr("settings.page.\($0)")
         }
     }
     private let store: SettingsStore
     private let usage: UsageStore
     private let bookmarks: BookmarkStore?
+    private let applicationsProvider: () -> [AppItem]
+    private let setHotKeySuspended: (Bool) -> Void
     private let apply: (LauncherSettings) throws -> Void
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
+    private let appShortcutsSettings = AppShortcutsSettingsView()
     private let engine = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let webSearchSettings = WebSearchSettingsView()
@@ -41,10 +44,14 @@ private final class SettingsPageHost: NSView {
     private var bookmarkBusy = false
 
     init(store: SettingsStore, usage: UsageStore, bookmarks: BookmarkStore? = nil,
+         applicationsProvider: @escaping () -> [AppItem] = { [] },
+         setHotKeySuspended: @escaping (Bool) -> Void = { _ in },
          apply: @escaping (LauncherSettings) throws -> Void) {
         self.store = store
         self.usage = usage
         self.bookmarks = bookmarks
+        self.applicationsProvider = applicationsProvider
+        self.setHotKeySuspended = setHotKeySuspended
         self.apply = apply
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -52,6 +59,7 @@ private final class SettingsPageHost: NSView {
         window.minSize = NSSize(width: 780, height: 580)
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
         configure()
         window.center()
     }
@@ -59,10 +67,20 @@ private final class SettingsPageHost: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    func windowWillClose(_ notification: Notification) {
+        window?.makeFirstResponder(nil)
+        setHotKeySuspended(false)
+    }
+
+    func reloadApplications(_ apps: [AppItem]) {
+        appShortcutsSettings.updateAvailableApps(apps)
+    }
+
     override func showWindow(_ sender: Any?) {
         let value = store.settings
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
+        appShortcutsSettings.reload(value.appShortcuts, availableApps: applicationsProvider())
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
         webSearchSettings.reload(value.webSearches)
@@ -79,6 +97,9 @@ private final class SettingsPageHost: NSView {
         guard let content = window?.contentView else { return }
         hotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.hotkey"))
         clipboardHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.clipboard_hotkey"))
+        hotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
+        clipboardHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
+        appShortcutsSettings.onRecordingStateChanged = setHotKeySuspended
         engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
         languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
         languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
@@ -99,7 +120,7 @@ private final class SettingsPageHost: NSView {
         nav.alignment = .leading
         nav.spacing = 6
         nav.translatesAutoresizingMaskIntoConstraints = false
-        let symbols = ["gearshape", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus"]
+        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus"]
         for (index, title) in Self.pageTitles.enumerated() {
             let button = NSButton(title: title, target: self, action: #selector(navigate(_:)))
             button.setButtonType(.pushOnPushOff)
@@ -154,9 +175,17 @@ private final class SettingsPageHost: NSView {
             row(L10n.tr("settings.language"), languagePopup),
             row(L10n.tr("settings.hotkey"), hotKeyRecorder),
             row(L10n.tr("settings.clipboard_hotkey"), clipboardHotKeyRecorder),
+            note(L10n.tr("settings.general.right_command_note")),
             remember,
             NSButton(title: L10n.tr("settings.clear_usage"), target: self, action: #selector(clearHistory)),
         ])
+        addPage(L10n.tr("settings.page.app_shortcuts"), description: L10n.tr("settings.app_shortcuts.description"), controls: [
+            appShortcutsSettings,
+            note(L10n.tr("settings.app_shortcuts.note")),
+        ])
+        if let page = pages[L10n.tr("settings.page.app_shortcuts")] {
+            appShortcutsSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        }
         defaultBookmarks.target = self
         defaultBookmarks.action = #selector(bookmarkPreferenceChanged(_:))
         defaultBookmarks.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
@@ -419,16 +448,19 @@ private final class SettingsPageHost: NSView {
     }
 
     @objc private func saveSettings() {
-        let value = LauncherSettings(hotKey: hotKeyRecorder.binding ?? .optionSpace,
-                                     searchDirectories: paths,
-                                     searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
-                                     rememberUsage: remember.state == .on,
-                                     webSearches: webSearchSettings.definitions,
-                                     fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
-                                     clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
-                                     language: AppLanguage.allCases[languagePopup.indexOfSelectedItem])
-        let languageChanged = value.language != store.settings.language
+        window?.makeFirstResponder(nil)
         do {
+            let appShortcuts = try appShortcutsSettings.validatedShortcuts()
+            let value = LauncherSettings(hotKey: hotKeyRecorder.binding ?? .optionSpace,
+                                         searchDirectories: paths,
+                                         searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
+                                         rememberUsage: remember.state == .on,
+                                         webSearches: webSearchSettings.definitions,
+                                         fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
+                                         clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
+                                         language: AppLanguage.allCases[languagePopup.indexOfSelectedItem],
+                                         appShortcuts: appShortcuts)
+            let languageChanged = value.language != store.settings.language
             try apply(value)
             feedback.stringValue = languageChanged ? L10n.tr("settings.restart_required") : L10n.tr("settings.saved")
         } catch {
