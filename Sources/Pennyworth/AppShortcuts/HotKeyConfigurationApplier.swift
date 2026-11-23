@@ -28,6 +28,8 @@ enum HotKeyConfigurationApplier {
         onLauncher: @escaping () -> Void,
         onClipboard: @escaping () -> Void,
         onScreenshot: @escaping () -> Void = {},
+        onUploadClipboard: @escaping () -> Void = {},
+        onUploadFile: @escaping () -> Void = {},
         onAppShortcut: @escaping (AppShortcut) -> Void
     ) throws {
         try SettingsStore.validate(next)
@@ -39,6 +41,8 @@ enum HotKeyConfigurationApplier {
                 onLauncher: onLauncher,
                 onClipboard: onClipboard,
                 onScreenshot: onScreenshot,
+                onUploadClipboard: onUploadClipboard,
+                onUploadFile: onUploadFile,
                 onAppShortcut: onAppShortcut
             )
         } catch {
@@ -49,6 +53,8 @@ enum HotKeyConfigurationApplier {
                 onLauncher: onLauncher,
                 onClipboard: onClipboard,
                 onScreenshot: onScreenshot,
+                onUploadClipboard: onUploadClipboard,
+                onUploadFile: onUploadFile,
                 onAppShortcut: onAppShortcut
             )
             throw error
@@ -62,6 +68,8 @@ enum HotKeyConfigurationApplier {
         onLauncher: @escaping () -> Void,
         onClipboard: @escaping () -> Void,
         onScreenshot: @escaping () -> Void = {},
+        onUploadClipboard: @escaping () -> Void = {},
+        onUploadFile: @escaping () -> Void = {},
         onAppShortcut: @escaping (AppShortcut) -> Void
     ) {
         unregisterManagedBindings(from: failed, in: manager)
@@ -71,6 +79,8 @@ enum HotKeyConfigurationApplier {
             onLauncher: onLauncher,
             onClipboard: onClipboard,
             onScreenshot: onScreenshot,
+            onUploadClipboard: onUploadClipboard,
+            onUploadFile: onUploadFile,
             onAppShortcut: onAppShortcut
         )
     }
@@ -79,6 +89,8 @@ enum HotKeyConfigurationApplier {
         manager.unregister(name: "launcher")
         manager.unregister(name: "clipboard")
         manager.unregister(name: "screenshot")
+        manager.unregister(name: "uploadClipboard")
+        manager.unregister(name: "uploadFile")
         for shortcut in settings.appShortcuts {
             manager.unregister(name: registrationName(for: shortcut.id))
         }
@@ -90,6 +102,8 @@ enum HotKeyConfigurationApplier {
         onLauncher: @escaping () -> Void,
         onClipboard: @escaping () -> Void,
         onScreenshot: @escaping () -> Void,
+        onUploadClipboard: @escaping () -> Void,
+        onUploadFile: @escaping () -> Void,
         onAppShortcut: @escaping (AppShortcut) -> Void
     ) throws {
         try manager.register(
@@ -112,6 +126,22 @@ enum HotKeyConfigurationApplier {
                 callback: onScreenshot
             )
         }
+        if let uploadClipboard = settings.imageUpload.uploadClipboardHotKey {
+            try manager.register(
+                name: "uploadClipboard",
+                keyCode: uploadClipboard.keyCode,
+                modifiers: uploadClipboard.modifiers,
+                callback: onUploadClipboard
+            )
+        }
+        if let uploadFile = settings.imageUpload.uploadFileHotKey {
+            try manager.register(
+                name: "uploadFile",
+                keyCode: uploadFile.keyCode,
+                modifiers: uploadFile.modifiers,
+                callback: onUploadFile
+            )
+        }
         for shortcut in settings.appShortcuts where shortcut.isEnabled {
             try manager.register(
                 name: registrationName(for: shortcut.id),
@@ -129,6 +159,8 @@ enum HotKeyConfigurationApplier {
         onLauncher: @escaping () -> Void,
         onClipboard: @escaping () -> Void,
         onScreenshot: @escaping () -> Void,
+        onUploadClipboard: @escaping () -> Void,
+        onUploadFile: @escaping () -> Void,
         onAppShortcut: @escaping (AppShortcut) -> Void
     ) {
         try? manager.register(
@@ -149,6 +181,22 @@ enum HotKeyConfigurationApplier {
                 keyCode: screenshot.keyCode,
                 modifiers: screenshot.modifiers,
                 callback: onScreenshot
+            )
+        }
+        if let uploadClipboard = settings.imageUpload.uploadClipboardHotKey {
+            try? manager.register(
+                name: "uploadClipboard",
+                keyCode: uploadClipboard.keyCode,
+                modifiers: uploadClipboard.modifiers,
+                callback: onUploadClipboard
+            )
+        }
+        if let uploadFile = settings.imageUpload.uploadFileHotKey {
+            try? manager.register(
+                name: "uploadFile",
+                keyCode: uploadFile.keyCode,
+                modifiers: uploadFile.modifiers,
+                callback: onUploadFile
             )
         }
         for shortcut in settings.appShortcuts where shortcut.isEnabled {

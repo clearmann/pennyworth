@@ -1,7 +1,7 @@
 import Foundation
 import Carbon
 
-enum HotKeyPreset: Equatable, Codable {
+enum HotKeyPreset: Equatable, Codable, Sendable {
     case optionSpace, optionShiftSpace, controlOptionSpace
     case optionCommandC, controlOptionC
     case commandComma
@@ -131,12 +131,14 @@ struct LauncherSettings: Codable, Equatable {
     let screenshotHotKey: HotKeyPreset?
     let appShortcuts: [AppShortcut]
     let mouseScroll: MouseScrollSettings
+    let imageUpload: ImageUploadSettings
 
     init(hotKey: HotKeyPreset, searchDirectories: [String], searchEngine: SearchEngine,
          rememberUsage: Bool, webSearches: [WebSearchDefinition] = WebSearchDefinition.builtIns,
          fallbackOnlyWhenNoResults: Bool = false, clipboardHotKey: HotKeyPreset = .optionCommandC,
          language: AppLanguage = .system, screenshotHotKey: HotKeyPreset? = .controlOptionP,
-         appShortcuts: [AppShortcut] = [], mouseScroll: MouseScrollSettings = .defaults) {
+         appShortcuts: [AppShortcut] = [], mouseScroll: MouseScrollSettings = .defaults,
+         imageUpload: ImageUploadSettings = .defaults) {
         self.hotKey = hotKey
         self.searchDirectories = searchDirectories
         self.searchEngine = searchEngine
@@ -148,12 +150,13 @@ struct LauncherSettings: Codable, Equatable {
         self.screenshotHotKey = screenshotHotKey
         self.appShortcuts = appShortcuts
         self.mouseScroll = mouseScroll
+        self.imageUpload = imageUpload
     }
 
     private enum CodingKeys: String, CodingKey {
         case hotKey, searchDirectories, searchEngine, webSearches, rememberUsage
         case fallbackOnlyWhenNoResults, clipboardHotKey, language, screenshotHotKey, appShortcuts
-        case mouseScroll
+        case mouseScroll, imageUpload
     }
 
     init(from decoder: Decoder) throws {
@@ -169,6 +172,7 @@ struct LauncherSettings: Codable, Equatable {
         language = try values.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         appShortcuts = try values.decodeIfPresent([AppShortcut].self, forKey: .appShortcuts) ?? []
         mouseScroll = try values.decodeIfPresent(MouseScrollSettings.self, forKey: .mouseScroll) ?? .defaults
+        imageUpload = try values.decodeIfPresent(ImageUploadSettings.self, forKey: .imageUpload) ?? .defaults
         if values.contains(.screenshotHotKey) {
             // An explicit JSON null is a deliberate user disable.
             screenshotHotKey = try values.decodeIfPresent(HotKeyPreset.self, forKey: .screenshotHotKey)
@@ -176,6 +180,7 @@ struct LauncherSettings: Codable, Equatable {
             // Legacy data: offer the default unless it collides with an existing binding.
             let candidate = HotKeyPreset.controlOptionP
             let existing = [hotKey, clipboardHotKey] + appShortcuts.map(\.hotKey)
+                + [imageUpload.uploadClipboardHotKey, imageUpload.uploadFileHotKey].compactMap { $0 }
             let collides = existing.contains {
                 $0.keyCode == candidate.keyCode && $0.modifiers == candidate.modifiers
             }
@@ -205,6 +210,7 @@ struct LauncherSettings: Codable, Equatable {
         }
         try values.encode(appShortcuts, forKey: .appShortcuts)
         try values.encode(mouseScroll, forKey: .mouseScroll)
+        try values.encode(imageUpload, forKey: .imageUpload)
     }
 }
 
@@ -272,11 +278,19 @@ final class SettingsStore {
             }
             reservedHotKeys.append(screenshot)
         }
+        for uploadHotKey in [value.imageUpload.uploadClipboardHotKey, value.imageUpload.uploadFileHotKey].compactMap({ $0 }) {
+            guard isValidAppShortcutBinding(uploadHotKey),
+                  !reservedHotKeys.contains(where: { sameBinding($0, uploadHotKey) }) else {
+                throw SettingsError.invalidHotKeys
+            }
+            reservedHotKeys.append(uploadHotKey)
+        }
         try AppShortcut.validate(
             value.appShortcuts,
             reservedHotKeys: reservedHotKeys
         )
         try MouseScrollSettings.validate(value.mouseScroll)
+        try ImageUploadSettings.validate(value.imageUpload)
     }
 
     static func isValidAppShortcutBinding(_ binding: HotKeyPreset) -> Bool {

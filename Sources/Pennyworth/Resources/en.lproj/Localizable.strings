@@ -322,3 +322,113 @@
 "mouse.permission.status.awaiting" = "Waiting for Accessibility Permission: allow Pennyworth in System Settings → Privacy & Security → Accessibility. It will activate automatically once granted.";
 "mouse.permission.status.tap_failed" = "Accessibility is granted, but the scroll event monitor failed to start. Try quitting and reopening Pennyworth.";
 "mouse.error.invalid_speed" = "Scroll speed must be between 0.5x and 3.0x.";
+
+"settings.page.image_upload" = "Image Upload";
+"settings.image_upload.description" = "Upload images or files to S3-compatible storage, Aliyun OSS, Tencent COS, or Qiniu Kodo and copy the link automatically.";
+"settings.image_upload.note" = "Secret keys are stored securely in macOS Keychain and never written to plain-text settings. Drag files onto the menu bar icon to upload. Click Save to apply.";
+
+"menu.upload_file" = "Upload File…";
+"menu.upload_file_hotkey" = "Upload File… (%@)";
+"menu.upload_file_hotkey_unavailable" = "Upload File… (Hotkey Unavailable)";
+"menu.upload_clipboard" = "Upload Clipboard";
+"menu.upload_clipboard_hotkey" = "Upload Clipboard (%@)";
+"menu.upload_clipboard_hotkey_unavailable" = "Upload Clipboard (Hotkey Unavailable)";
+"menu.upload_hosts" = "Image Host";
+"menu.upload_configure_hosts" = "Configure Image Host…";
+"menu.upload_format" = "Output Format";
+"menu.upload_history" = "Upload History";
+"menu.upload_history_empty" = "No uploads yet";
+
+"image_upload.provider.s3" = "S3 Compatible";
+"image_upload.provider.aliyunOSS" = "Aliyun OSS";
+"image_upload.provider.tencentCOS" = "Tencent COS";
+"image_upload.provider.qiniu" = "Qiniu Kodo";
+
+"image_upload.format.url" = "URL";
+"image_upload.format.markdown" = "Markdown";
+"image_upload.format.html" = "HTML";
+"image_upload.format.ubb" = "UBB";
+
+"image_upload.qiniu_region.z0" = "East China (z0)";
+"image_upload.qiniu_region.z1" = "North China (z1)";
+"image_upload.qiniu_region.z2" = "South China (z2)";
+"image_upload.qiniu_region.na0" = "North America (na0)";
+"image_upload.qiniu_region.as0" = "Southeast Asia (as0)";
+"image_upload.qiniu_region.cn-east-2" = "East China Zhejiang 2 (cn-east-2)";
+"image_upload.qiniu_region.custom" = "Custom Upload Endpoint";
+
+"image_upload.section.general" = "Upload Preferences";
+"image_upload.section.hosts" = "Image Hosts";
+"image_upload.section.history" = "Recent Uploads";
+"image_upload.settings.output_format" = "Output Format";
+"image_upload.settings.encode_url" = "Percent-encode special characters in URLs";
+"image_upload.settings.compress_quality" = "Image Compression";
+"image_upload.settings.compress_off" = "Off (100%)";
+"image_upload.settings.clipboard_hotkey" = "Upload Clipboard";
+"image_upload.settings.file_hotkey" = "Upload File";
+"image_upload.settings.hosts_list" = "Image hosts list";
+"image_upload.settings.add_host" = "Add Host";
+"image_upload.settings.remove_host" = "Remove Selected";
+"image_upload.settings.set_default" = "Set as Default";
+"image_upload.settings.template_note" = "Save path variables: {year}, {month}, {day}, {hour}, {minute}, {second}, {since_second}, {since_millisecond}, {random}, {filename}, {.suffix}, {suffix}.";
+"image_upload.default_host_name" = "Host %d";
+
+"image_upload.column.default" = "Def";
+"image_upload.column.name" = "Name";
+"image_upload.column.provider" = "Provider";
+"image_upload.column.bucket" = "Bucket";
+
+"image_upload.field.provider" = "Provider";
+"image_upload.field.name" = "Name";
+"image_upload.field.bucket" = "Bucket";
+"image_upload.field.region" = "Region";
+"image_upload.field.endpoint" = "Endpoint";
+"image_upload.field.path_style" = "Use Path-Style URL (recommended for R2 / MinIO)";
+"image_upload.field.access_key" = "Access Key";
+"image_upload.field.secret_key" = "Secret Key";
+"image_upload.field.domain" = "Custom Domain";
+"image_upload.field.domain_required" = "Access Domain *";
+"image_upload.field.save_key_path" = "Save Path";
+"image_upload.field.suffix" = "URL Suffix";
+
+"image_upload.placeholder.name" = "e.g. Blog R2";
+"image_upload.placeholder.bucket" = "e.g. my-images";
+"image_upload.placeholder.secret_key" = "Stored in macOS Keychain";
+"image_upload.placeholder.secret_key_saved" = "Saved in Keychain (leave blank to keep)";
+"image_upload.placeholder.domain_optional" = "Optional, e.g. https://cdn.example.com";
+"image_upload.placeholder.endpoint_optional" = "Optional custom endpoint URL";
+"image_upload.placeholder.suffix" = "Optional, e.g. ?x-oss-process=image/format,webp";
+
+"image_upload.history.list_accessibility" = "Upload history list";
+"image_upload.history.column.file" = "File";
+"image_upload.history.column.host" = "Host";
+"image_upload.history.column.url" = "URL";
+"image_upload.history.copy" = "Copy Link";
+"image_upload.history.clear" = "Clear History";
+
+"image_upload.action.upload" = "Upload";
+"image_upload.status.drop_hint" = "Release to upload files";
+"image_upload.status.uploading" = "Uploading…";
+"image_upload.toast.success_title" = "Upload succeeded · Link copied";
+"image_upload.toast.success_batch_title" = "Uploaded %d files · Links copied";
+"image_upload.toast.failed_title" = "Upload failed";
+"image_upload.toast.copied_title" = "Link copied to clipboard";
+
+"image_upload.error.too_many_hosts" = "Up to 32 image hosts are supported.";
+"image_upload.error.invalid_compress_factor" = "Image compression quality must be between 10% and 100%.";
+"image_upload.error.invalid_host_id" = "Invalid or duplicate image host identifier.";
+"image_upload.error.invalid_selected_host" = "Selected default image host does not exist.";
+"image_upload.error.missing_field" = "Host “%@” is missing required field: %@.";
+"image_upload.error.invalid_url" = "Host “%@” has an invalid %@ URL. Include http:// or https://.";
+"image_upload.error.no_host" = "No image host is configured. Add one in Settings → Image Upload.";
+"image_upload.error.missing_secret" = "Host “%@” is missing its Secret Key.";
+"image_upload.error.clipboard_empty" = "The clipboard does not contain any usable image or file.";
+"image_upload.error.unreadable_file" = "Could not read file “%@”.";
+"image_upload.error.directory_not_supported" = "Folder “%@” cannot be uploaded directly. Choose individual files.";
+"image_upload.error.file_too_large" = "File “%@” exceeds the %d MB upload limit.";
+"image_upload.error.invalid_endpoint" = "Invalid upload endpoint: %@.";
+"image_upload.error.server_error" = "Server returned HTTP %d: %@";
+"image_upload.error.invalid_response" = "Unexpected server response: %@";
+"image_upload.error.keychain_failure" = "Keychain operation failed (status %d).";
+"image_upload.error.hotkey_registration_failed" = "Could not register the upload hotkey %@. Another app may own this combination; choose a different one in Settings.";
+

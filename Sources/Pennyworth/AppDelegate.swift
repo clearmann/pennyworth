@@ -7,6 +7,9 @@ import Carbon
     private let bookmarks: BookmarkStore
     private let clipboardStore: ClipboardStore
     private let clipboardMonitor = ClipboardMonitor()
+    private let uploadSecretStore: ImageUploadSecretStoring = KeychainSecretStore()
+    private let uploadHistoryStore = UploadHistoryStore()
+    private let uploadToast = UploadStatusToast()
     private var model: LauncherModel!
     private var panel: LauncherPanel!
     private var controller: LauncherViewController!
@@ -14,16 +17,26 @@ import Carbon
     private var clipboardController: ClipboardHistoryViewController!
     private var preferences: SettingsWindowController?
     private var statusItem: NSStatusItem?
+    private var statusBarDropView: StatusBarDropView?
     private var hotKeyTitle: NSMenuItem?
     private var clipboardHotKeyTitle: NSMenuItem?
     private var screenshotHotKeyTitle: NSMenuItem?
+    private var uploadFileMenuItem: NSMenuItem?
+    private var uploadClipboardMenuItem: NSMenuItem?
+    private var uploadHostsSubmenu: NSMenu?
+    private var uploadFormatSubmenu: NSMenu?
+    private var uploadHistorySubmenu: NSMenu?
     private var actualHotKey: HotKeyPreset?
     private var actualClipboardHotKey: HotKeyPreset?
     private var actualScreenshotHotKey: HotKeyPreset?
+    private var actualUploadClipboardHotKey: HotKeyPreset?
+    private var actualUploadFileHotKey: HotKeyPreset?
     private var pinnedImageManager: PinnedImageManager!
     private var screenshotController: ScreenshotSessionController!
     private var mouseScrollController: MouseScrollController!
+    private var imageUploadController: ImageUploadController!
     private var screenshotHotKeyAlertShown = false
+    private var uploadHotKeyAlertShown = false
     private var installedApplications: [AppItem] = []
     private let appShortcutLauncher: AppShortcutLaunching = AppShortcutLauncher()
     private var scanTask: Task<Void, Never>?
@@ -98,6 +111,22 @@ import Carbon
             self?.resizePanel(self?.clipboardPanel, height: height)
         }
 
+        imageUploadController = ImageUploadController(
+            settingsProvider: { [weak self] in self?.settings.settings.imageUpload ?? .defaults },
+            service: ImageUploadService(secretStore: uploadSecretStore),
+            historyStore: uploadHistoryStore,
+            onFeedback: { [weak self] title, detail, style in
+                self?.uploadToast.show(title: title, detail: detail, style: style)
+            }
+        )
+        imageUploadController.onStateChanged = { [weak self] state in
+            self?.updateStatusItemAppearance(for: state)
+        }
+        imageUploadController.onHistoryChanged = { [weak self] in
+            self?.rebuildUploadHistoryMenu()
+            self?.preferences?.reloadImageUploadHistory()
+        }
+
         configureMenu()
         configureHotKeys()
         mouseScrollController = MouseScrollController()
@@ -114,12 +143,46 @@ import Carbon
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Pennyworth")
         item.button?.toolTip = "Pennyworth"
+        if let button = item.button {
+            let dropView = StatusBarDropView(frame: button.bounds)
+            dropView.autoresizingMask = [.width, .height]
+            dropView.onDragHoverChanged = { [weak self] hovering in
+                self?.imageUploadController.setDragHovering(hovering)
+            }
+            dropView.onDropFiles = { [weak self] urls in
+                self?.imageUploadController.uploadFiles(urls)
+            }
+            button.addSubview(dropView)
+            statusBarDropView = dropView
+        }
         let menu = NSMenu()
         hotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_launcher"), action: #selector(togglePanel), keyEquivalent: "")
         clipboardHotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.show_clipboard"), action: #selector(toggleClipboardPanel), keyEquivalent: "")
         menu.addItem(.separator())
         screenshotHotKeyTitle = menu.addItem(withTitle: L10n.tr("menu.screenshot"), action: #selector(startScreenshotFromMenu), keyEquivalent: "")
         menu.addItem(withTitle: L10n.tr("menu.pin_clipboard"), action: #selector(pinClipboardFromMenu), keyEquivalent: "")
+        menu.addItem(.separator())
+        uploadFileMenuItem = menu.addItem(withTitle: L10n.tr("menu.upload_file"), action: #selector(uploadFileFromMenu), keyEquivalent: "")
+        uploadClipboardMenuItem = menu.addItem(withTitle: L10n.tr("menu.upload_clipboard"), action: #selector(uploadClipboardFromMenu), keyEquivalent: "")
+
+        let hostsItem = NSMenuItem(title: L10n.tr("menu.upload_hosts"), action: nil, keyEquivalent: "")
+        let hostsMenu = NSMenu()
+        hostsItem.submenu = hostsMenu
+        uploadHostsSubmenu = hostsMenu
+        menu.addItem(hostsItem)
+
+        let formatItem = NSMenuItem(title: L10n.tr("menu.upload_format"), action: nil, keyEquivalent: "")
+        let formatMenu = NSMenu()
+        formatItem.submenu = formatMenu
+        uploadFormatSubmenu = formatMenu
+        menu.addItem(formatItem)
+
+        let historyItem = NSMenuItem(title: L10n.tr("menu.upload_history"), action: nil, keyEquivalent: "")
+        let historyMenu = NSMenu()
+        historyItem.submenu = historyMenu
+        uploadHistorySubmenu = historyMenu
+        menu.addItem(historyItem)
+
         menu.addItem(.separator())
         menu.addItem(withTitle: L10n.tr("menu.settings"), action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(withTitle: L10n.tr("menu.refresh_apps"), action: #selector(refreshApplications), keyEquivalent: "")
@@ -128,6 +191,7 @@ import Carbon
         menu.items.filter { $0.action != nil }.forEach { $0.target = self }
         item.menu = menu
         statusItem = item
+        rebuildUploadMenus()
     }
 
     private func configureHotKeys() {
@@ -145,6 +209,7 @@ import Carbon
             self?.showSettings()
         }
         registerScreenshotHotKey(settings.settings.screenshotHotKey)
+        registerUploadHotKeys(settings.settings.imageUpload)
         HotKeyConfigurationApplier.registerStartupAppShortcuts(
             settings.settings.appShortcuts,
             in: HotKeyManager.shared
@@ -156,6 +221,7 @@ import Carbon
         clipboardHotKeyTitle?.title = actualClipboardHotKey.map { L10n.format("menu.show_clipboard_hotkey", $0.title) }
             ?? L10n.tr("menu.clipboard_hotkey_unavailable")
         updateScreenshotHotKeyTitle()
+        updateUploadHotKeyTitles()
     }
 
     /// Direct named registration only: no candidate fallback, no silent failure.
@@ -203,6 +269,240 @@ import Carbon
 
     @objc private func pinClipboardFromMenu() {
         do { try screenshotController.pinClipboardImage() } catch { showScreenshotError(error) }
+    }
+
+    /// Direct named registration only: no candidate fallback, no silent failure.
+    private func registerUploadHotKeys(_ uploadSettings: ImageUploadSettings) {
+        actualUploadClipboardHotKey = registerOptionalNamedHotKey(
+            name: "uploadClipboard",
+            preset: uploadSettings.uploadClipboardHotKey,
+            featureTitle: L10n.tr("menu.upload_clipboard")
+        ) { [weak self] in
+            self?.imageUploadController.uploadClipboard()
+        }
+        actualUploadFileHotKey = registerOptionalNamedHotKey(
+            name: "uploadFile",
+            preset: uploadSettings.uploadFileHotKey,
+            featureTitle: L10n.tr("menu.upload_file")
+        ) { [weak self] in
+            self?.imageUploadController.selectFilesAndUpload()
+        }
+    }
+
+    private func registerOptionalNamedHotKey(
+        name: String,
+        preset: HotKeyPreset?,
+        featureTitle: String,
+        callback: @escaping () -> Void
+    ) -> HotKeyPreset? {
+        guard let preset else { return nil }
+        do {
+            try HotKeyManager.shared.register(name: name, keyCode: preset.keyCode, modifiers: preset.modifiers, callback: callback)
+            return preset
+        } catch {
+            if !uploadHotKeyAlertShown {
+                uploadHotKeyAlertShown = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.showNamedHotKeyRegistrationAlert(title: featureTitle, preset: preset)
+                }
+            }
+            return nil
+        }
+    }
+
+    private func showNamedHotKeyRegistrationAlert(title: String, preset: HotKeyPreset) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = L10n.format("image_upload.error.hotkey_registration_failed", preset.title)
+        alert.addButton(withTitle: L10n.tr("menu.settings"))
+        alert.addButton(withTitle: L10n.tr("common.cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            presentSettings(initialPage: L10n.tr("settings.page.image_upload"))
+        }
+    }
+
+    private func updateUploadHotKeyTitles() {
+        let uploadSettings = settings.settings.imageUpload
+        if uploadSettings.uploadFileHotKey == nil {
+            uploadFileMenuItem?.title = L10n.tr("menu.upload_file")
+        } else if let actual = actualUploadFileHotKey {
+            uploadFileMenuItem?.title = L10n.format("menu.upload_file_hotkey", actual.title)
+        } else {
+            uploadFileMenuItem?.title = L10n.tr("menu.upload_file_hotkey_unavailable")
+        }
+
+        if uploadSettings.uploadClipboardHotKey == nil {
+            uploadClipboardMenuItem?.title = L10n.tr("menu.upload_clipboard")
+        } else if let actual = actualUploadClipboardHotKey {
+            uploadClipboardMenuItem?.title = L10n.format("menu.upload_clipboard_hotkey", actual.title)
+        } else {
+            uploadClipboardMenuItem?.title = L10n.tr("menu.upload_clipboard_hotkey_unavailable")
+        }
+    }
+
+    private func rebuildUploadMenus() {
+        rebuildUploadHostsMenu()
+        rebuildUploadFormatMenu()
+        rebuildUploadHistoryMenu()
+    }
+
+    private func rebuildUploadHostsMenu() {
+        guard let menu = uploadHostsSubmenu else { return }
+        menu.removeAllItems()
+        let uploadSettings = settings.settings.imageUpload
+        if uploadSettings.hosts.isEmpty {
+            let item = menu.addItem(
+                withTitle: L10n.tr("menu.upload_configure_hosts"),
+                action: #selector(openImageUploadSettings),
+                keyEquivalent: ""
+            )
+            item.target = self
+            return
+        }
+        let activeID = uploadSettings.activeHost?.id
+        for host in uploadSettings.hosts {
+            let item = menu.addItem(
+                withTitle: "\(host.name) (\(host.provider.title))",
+                action: #selector(selectUploadHostFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = host.id
+            item.state = host.id == activeID ? .on : .off
+        }
+    }
+
+    private func rebuildUploadFormatMenu() {
+        guard let menu = uploadFormatSubmenu else { return }
+        menu.removeAllItems()
+        let currentFormat = settings.settings.imageUpload.outputFormat
+        for format in UploadOutputFormat.allCases {
+            let item = menu.addItem(
+                withTitle: format.title,
+                action: #selector(selectUploadFormatFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = format.rawValue
+            item.state = format == currentFormat ? .on : .off
+        }
+    }
+
+    private func rebuildUploadHistoryMenu() {
+        guard let menu = uploadHistorySubmenu else { return }
+        menu.removeAllItems()
+        let recent = Array(uploadHistoryStore.items.prefix(10))
+        if recent.isEmpty {
+            let emptyItem = menu.addItem(withTitle: L10n.tr("menu.upload_history_empty"), action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            return
+        }
+        for record in recent {
+            let title = "\(record.filename) · \(record.hostName)"
+            let item = menu.addItem(
+                withTitle: title,
+                action: #selector(copyUploadHistoryFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = record.id
+            item.toolTip = record.url
+            if let data = record.thumbnailData, let image = NSImage(data: data) {
+                image.size = NSSize(width: 18, height: 18)
+                item.image = image
+            }
+        }
+        menu.addItem(.separator())
+        let clearItem = menu.addItem(
+            withTitle: L10n.tr("image_upload.history.clear"),
+            action: #selector(clearUploadHistoryFromMenu),
+            keyEquivalent: ""
+        )
+        clearItem.target = self
+    }
+
+    private func updateStatusItemAppearance(for state: ImageUploadController.VisualState) {
+        guard let button = statusItem?.button else { return }
+        switch state {
+        case .idle:
+            button.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Pennyworth")
+            button.toolTip = "Pennyworth"
+        case .dragHover:
+            button.image = NSImage(systemSymbolName: "icloud.and.arrow.up.fill", accessibilityDescription: L10n.tr("image_upload.status.drop_hint"))
+            button.toolTip = L10n.tr("image_upload.status.drop_hint")
+        case .uploading:
+            button.image = NSImage(systemSymbolName: "icloud.and.arrow.up", accessibilityDescription: L10n.tr("image_upload.status.uploading"))
+            button.toolTip = L10n.tr("image_upload.status.uploading")
+        case .succeeded:
+            button.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: L10n.tr("image_upload.toast.success_title"))
+            button.toolTip = L10n.tr("image_upload.toast.success_title")
+        }
+    }
+
+    @objc private func uploadFileFromMenu() {
+        imageUploadController.selectFilesAndUpload()
+    }
+
+    @objc private func uploadClipboardFromMenu() {
+        imageUploadController.uploadClipboard()
+    }
+
+    @objc private func openImageUploadSettings() {
+        presentSettings(initialPage: L10n.tr("settings.page.image_upload"))
+    }
+
+    @objc private func selectUploadHostFromMenu(_ sender: NSMenuItem) {
+        guard let hostID = sender.representedObject as? String else { return }
+        let current = settings.settings
+        let updated = LauncherSettings(
+            hotKey: current.hotKey,
+            searchDirectories: current.searchDirectories,
+            searchEngine: current.searchEngine,
+            rememberUsage: current.rememberUsage,
+            webSearches: current.webSearches,
+            fallbackOnlyWhenNoResults: current.fallbackOnlyWhenNoResults,
+            clipboardHotKey: current.clipboardHotKey,
+            language: current.language,
+            screenshotHotKey: current.screenshotHotKey,
+            appShortcuts: current.appShortcuts,
+            mouseScroll: current.mouseScroll,
+            imageUpload: current.imageUpload.withSelectedHostID(hostID)
+        )
+        try? settings.save(updated)
+        rebuildUploadHostsMenu()
+    }
+
+    @objc private func selectUploadFormatFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let format = UploadOutputFormat(rawValue: raw) else { return }
+        let current = settings.settings
+        let updated = LauncherSettings(
+            hotKey: current.hotKey,
+            searchDirectories: current.searchDirectories,
+            searchEngine: current.searchEngine,
+            rememberUsage: current.rememberUsage,
+            webSearches: current.webSearches,
+            fallbackOnlyWhenNoResults: current.fallbackOnlyWhenNoResults,
+            clipboardHotKey: current.clipboardHotKey,
+            language: current.language,
+            screenshotHotKey: current.screenshotHotKey,
+            appShortcuts: current.appShortcuts,
+            mouseScroll: current.mouseScroll,
+            imageUpload: current.imageUpload.withOutputFormat(format)
+        )
+        try? settings.save(updated)
+        rebuildUploadFormatMenu()
+    }
+
+    @objc private func copyUploadHistoryFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let item = uploadHistoryStore.items.first(where: { $0.id == id }) else { return }
+        imageUploadController.copyHistoryItem(item)
+    }
+
+    @objc private func clearUploadHistoryFromMenu() {
+        imageUploadController.clearHistory()
     }
 
     private func showScreenshotError(_ error: Error) {
@@ -299,7 +599,7 @@ import Carbon
         }
     }
 
-    private func presentSettings() {
+    private func presentSettings(initialPage: String? = nil) {
         screenshotController.cancel()
         hidePanel()
         hideClipboardPanel()
@@ -322,6 +622,14 @@ import Carbon
                 },
                 onRefreshMousePermission: { [weak self] in
                     self?.mouseScrollController.refreshPermissionStatus()
+                },
+                imageUploadSecretStore: uploadSecretStore,
+                uploadHistoryProvider: { [weak self] in self?.uploadHistoryStore.items ?? [] },
+                onCopyUploadHistory: { [weak self] item in
+                    self?.imageUploadController.copyHistoryItem(item)
+                },
+                onClearUploadHistory: { [weak self] in
+                    self?.imageUploadController.clearHistory()
                 }
             ) { [weak self] value in
                 try self?.applySettings(value)
@@ -329,6 +637,9 @@ import Carbon
         }
         NSApp.activate(ignoringOtherApps: true)
         preferences?.showWindow(nil)
+        if let initialPage {
+            preferences?.selectPage(initialPage)
+        }
         preferences?.window?.makeKeyAndOrderFront(nil)
     }
 
@@ -347,6 +658,8 @@ import Carbon
             onLauncher: { [weak self] in self?.togglePanel() },
             onClipboard: { [weak self] in self?.toggleClipboardPanel() },
             onScreenshot: { [weak self] in try? self?.screenshotController.startScreenshot() },
+            onUploadClipboard: { [weak self] in self?.imageUploadController.uploadClipboard() },
+            onUploadFile: { [weak self] in self?.imageUploadController.selectFilesAndUpload() },
             onAppShortcut: { [weak self] shortcut in self?.triggerAppShortcut(shortcut) }
         )
         do {
@@ -359,6 +672,8 @@ import Carbon
                 onLauncher: { [weak self] in self?.togglePanel() },
                 onClipboard: { [weak self] in self?.toggleClipboardPanel() },
                 onScreenshot: { [weak self] in try? self?.screenshotController.startScreenshot() },
+                onUploadClipboard: { [weak self] in self?.imageUploadController.uploadClipboard() },
+                onUploadFile: { [weak self] in self?.imageUploadController.selectFilesAndUpload() },
                 onAppShortcut: { [weak self] shortcut in self?.triggerAppShortcut(shortcut) }
             )
             throw error
@@ -366,6 +681,8 @@ import Carbon
         actualHotKey = value.hotKey
         actualClipboardHotKey = value.clipboardHotKey
         actualScreenshotHotKey = value.screenshotHotKey
+        actualUploadClipboardHotKey = value.imageUpload.uploadClipboardHotKey
+        actualUploadFileHotKey = value.imageUpload.uploadFileHotKey
         mouseScrollController.apply(
             value.mouseScroll,
             promptForPermission: value.mouseScroll.isActive && !previous.mouseScroll.isActive
@@ -373,6 +690,8 @@ import Carbon
         hotKeyTitle?.title = L10n.format("menu.show_launcher_hotkey", value.hotKey.title)
         clipboardHotKeyTitle?.title = L10n.format("menu.show_clipboard_hotkey", value.clipboardHotKey.title)
         updateScreenshotHotKeyTitle()
+        updateUploadHotKeyTitles()
+        rebuildUploadMenus()
         model.refreshPreferences()
     }
 
@@ -421,6 +740,7 @@ import Carbon
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationWillTerminate(_ notification: Notification) {
+        uploadToast.dismiss()
         mouseScrollController?.stop()
         screenshotController.cancel()
         pinnedImageManager.closeAll()

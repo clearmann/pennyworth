@@ -6,7 +6,7 @@ private final class SettingsPageHost: NSView {
 
 @MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static var pageTitles: [String] {
-        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots", "mouse"].map {
+        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots", "mouse", "image_upload"].map {
             L10n.tr("settings.page.\($0)")
         }
     }
@@ -19,12 +19,16 @@ private final class SettingsPageHost: NSView {
     private let onRequestMousePermission: () -> Void
     private let onOpenMouseAccessibilitySettings: () -> Bool
     private let onRefreshMousePermission: () -> Void
+    private let uploadHistoryProvider: () -> [UploadHistoryItem]
+    private let onCopyUploadHistory: (UploadHistoryItem) -> Void
+    private let onClearUploadHistory: () -> Void
     private let apply: (LauncherSettings) throws -> Void
     private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
     private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
     private let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP)
     private let appShortcutsSettings = AppShortcutsSettingsView()
     private let mouseScrollSettings = MouseScrollSettingsView()
+    private let imageUploadSettings: ImageUploadSettingsView
     private let engine = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let webSearchSettings = WebSearchSettingsView()
@@ -56,6 +60,10 @@ private final class SettingsPageHost: NSView {
          onRequestMousePermission: @escaping () -> Void = {},
          onOpenMouseAccessibilitySettings: @escaping () -> Bool = { false },
          onRefreshMousePermission: @escaping () -> Void = {},
+         imageUploadSecretStore: ImageUploadSecretStoring = KeychainSecretStore(),
+         uploadHistoryProvider: @escaping () -> [UploadHistoryItem] = { [] },
+         onCopyUploadHistory: @escaping (UploadHistoryItem) -> Void = { _ in },
+         onClearUploadHistory: @escaping () -> Void = {},
          apply: @escaping (LauncherSettings) throws -> Void) {
         self.store = store
         self.usage = usage
@@ -66,6 +74,10 @@ private final class SettingsPageHost: NSView {
         self.onRequestMousePermission = onRequestMousePermission
         self.onOpenMouseAccessibilitySettings = onOpenMouseAccessibilitySettings
         self.onRefreshMousePermission = onRefreshMousePermission
+        self.uploadHistoryProvider = uploadHistoryProvider
+        self.onCopyUploadHistory = onCopyUploadHistory
+        self.onClearUploadHistory = onClearUploadHistory
+        self.imageUploadSettings = ImageUploadSettingsView(secretStore: imageUploadSecretStore)
         self.apply = apply
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -95,6 +107,10 @@ private final class SettingsPageHost: NSView {
         mouseScrollSettings.updatePermissionStatus(state.0, isTrusted: state.1)
     }
 
+    func reloadImageUploadHistory() {
+        imageUploadSettings.reloadHistory(uploadHistoryProvider())
+    }
+
     override func showWindow(_ sender: Any?) {
         let value = store.settings
         hotKeyRecorder.setBinding(value.hotKey)
@@ -103,6 +119,7 @@ private final class SettingsPageHost: NSView {
         appShortcutsSettings.reload(value.appShortcuts, availableApps: applicationsProvider())
         let mouseState = mousePermissionProvider()
         mouseScrollSettings.reload(value.mouseScroll, status: mouseState.0, isTrusted: mouseState.1)
+        imageUploadSettings.reload(value.imageUpload, history: uploadHistoryProvider())
         engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
         languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
         webSearchSettings.reload(value.webSearches)
@@ -124,6 +141,14 @@ private final class SettingsPageHost: NSView {
         clipboardHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
         screenshotHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
         appShortcutsSettings.onRecordingStateChanged = setHotKeySuspended
+        imageUploadSettings.onRecordingStateChanged = setHotKeySuspended
+        imageUploadSettings.onCopyHistoryItem = { [weak self] item in
+            self?.onCopyUploadHistory(item)
+        }
+        imageUploadSettings.onClearHistory = { [weak self] in
+            self?.onClearUploadHistory()
+            self?.reloadImageUploadHistory()
+        }
         mouseScrollSettings.onRequestPermission = { [weak self] in
             self?.onRequestMousePermission()
             self?.reloadMouseStatus()
@@ -160,7 +185,7 @@ private final class SettingsPageHost: NSView {
         nav.alignment = .leading
         nav.spacing = 6
         nav.translatesAutoresizingMaskIntoConstraints = false
-        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder", "computermouse"]
+        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder", "computermouse", "icloud.and.arrow.up"]
         for (index, title) in Self.pageTitles.enumerated() {
             let button = NSButton(title: title, target: self, action: #selector(navigate(_:)))
             button.setButtonType(.pushOnPushOff)
@@ -288,6 +313,13 @@ private final class SettingsPageHost: NSView {
         ])
         if let page = pages[L10n.tr("settings.page.mouse")] {
             mouseScrollSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+        }
+        addPage(L10n.tr("settings.page.image_upload"), description: L10n.tr("settings.image_upload.description"), controls: [
+            imageUploadSettings,
+            note(L10n.tr("settings.image_upload.note")),
+        ])
+        if let page = pages[L10n.tr("settings.page.image_upload")] {
+            imageUploadSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
         }
         // Bookmark state is loaded after the window is first presented.
     }
@@ -502,6 +534,7 @@ private final class SettingsPageHost: NSView {
         window?.makeFirstResponder(nil)
         do {
             let appShortcuts = try appShortcutsSettings.validatedShortcuts()
+            let imageUpload = try imageUploadSettings.buildValidatedSettings()
             let value = LauncherSettings(hotKey: hotKeyRecorder.binding ?? .optionSpace,
                                          searchDirectories: paths,
                                          searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
@@ -512,9 +545,11 @@ private final class SettingsPageHost: NSView {
                                          language: AppLanguage.allCases[languagePopup.indexOfSelectedItem],
                                          screenshotHotKey: screenshotHotKeyRecorder.binding,
                                          appShortcuts: appShortcuts,
-                                         mouseScroll: mouseScrollSettings.currentSettings)
+                                         mouseScroll: mouseScrollSettings.currentSettings,
+                                         imageUpload: imageUpload)
             let languageChanged = value.language != store.settings.language
             try apply(value)
+            try imageUploadSettings.commitPendingSecrets()
             reloadMouseStatus()
             feedback.stringValue = languageChanged ? L10n.tr("settings.restart_required") : L10n.tr("settings.saved")
         } catch {
