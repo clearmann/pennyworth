@@ -3,8 +3,11 @@ import AppKit
 import XCTest
 
 final class ImageUploadSettingsUITests: XCTestCase {
-    @MainActor func testAddHostSavePersistsSettingsAndStoresSecretOnlyInSecretStore() throws {
+    @MainActor func testAddHostViaSheetPersistsSecretOnlyInSecretStoreAndHistoryCopiesClears() throws {
         _ = NSApplication.shared
+        defer { AppLocalization.configure(language: .system) }
+        AppLocalization.configure(language: .simplifiedChinese)
+
         let name = "ImageUploadSettingsUI.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -38,42 +41,45 @@ final class ImageUploadSettingsUITests: XCTestCase {
             try store.save($0)
         }
 
+        controller.window?.animationBehavior = .none
         controller.showWindow(nil)
         defer { controller.close() }
         controller.selectPage(L10n.tr("settings.page.image_upload"))
         XCTAssertEqual(controller.selectedPageTitle, L10n.tr("settings.page.image_upload"))
 
         let content = try XCTUnwrap(controller.window?.contentView)
-        let allViews = descendants(content)
-        let uploadView = try XCTUnwrap(allViews.compactMap { $0 as? ImageUploadSettingsView }.first)
-        let views = descendants(uploadView)
+        let uploadView = try XCTUnwrap(descendants(content).compactMap { $0 as? ImageUploadSettingsView }.first)
 
-        let addHostButton = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+        // Open Add Host sheet.
+        let addHostButton = try XCTUnwrap(descendants(uploadView).compactMap { $0 as? NSButton }.first {
             $0.title == L10n.tr("image_upload.settings.add_host")
         })
         addHostButton.performClick(nil)
 
-        let nameField = try XCTUnwrap(textField(in: views, label: "image_upload.field.name"))
-        let bucketField = try XCTUnwrap(textField(in: views, label: "image_upload.field.bucket"))
-        let endpointField = try XCTUnwrap(textField(in: views, label: "image_upload.field.endpoint"))
-        let accessKeyField = try XCTUnwrap(textField(in: views, label: "image_upload.field.access_key"))
-        let secretKeyField = try XCTUnwrap(textField(in: views, label: "image_upload.field.secret_key"))
-        let domainField = try XCTUnwrap(textField(in: views, label: "image_upload.field.domain"))
+        let sheet = try XCTUnwrap(controller.window?.attachedSheet)
+        let sheetViews = descendants(try XCTUnwrap(sheet.contentView))
 
-        setText("Blog R2", on: nameField)
-        setText("blog-assets", on: bucketField)
-        setText("https://acct.r2.cloudflarestorage.com", on: endpointField)
-        setText("AKIA_DEMO", on: accessKeyField)
-        setText("https://cdn.blog.example.com", on: domainField)
+        let nameField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.name"))
+        let bucketField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.bucket"))
+        let endpointField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.endpoint"))
+        let accessKeyField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.access_key"))
+        let secretKeyField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.secret_key"))
+        let domainField = try XCTUnwrap(textField(in: sheetViews, label: "image_upload.field.domain"))
 
-        // Saving without secret key must fail and not persist host.
-        let saveButton = try XCTUnwrap(allViews.compactMap { $0 as? NSButton }.first { $0.title == L10n.tr("settings.save") })
+        nameField.stringValue = "Blog R2"
+        bucketField.stringValue = "blog-assets"
+        endpointField.stringValue = "https://acct.r2.cloudflarestorage.com"
+        accessKeyField.stringValue = "AKIA_DEMO"
+        domainField.stringValue = "https://cdn.blog.example.com"
+
+        // Saving without secret key must fail inline and not persist host.
+        let saveButton = try XCTUnwrap(sheetViews.compactMap { $0 as? NSButton }.first { $0.title == L10n.tr("settings.save") })
         saveButton.performClick(nil)
         XCTAssertTrue(store.settings.imageUpload.hosts.isEmpty)
 
         // Fill secret key and save.
         let secretValue = "SUPER_SECRET_VALUE_98765"
-        setText(secretValue, on: secretKeyField)
+        secretKeyField.stringValue = secretValue
         saveButton.performClick(nil)
 
         XCTAssertEqual(store.settings.imageUpload.hosts.count, 1)
@@ -87,29 +93,26 @@ final class ImageUploadSettingsUITests: XCTestCase {
         let jsonString = try XCTUnwrap(String(data: rawJSON, encoding: .utf8))
         XCTAssertFalse(jsonString.contains(secretValue))
 
-        // History copy & clear actions
-        let historyTable = try XCTUnwrap(views.compactMap { $0 as? NSTableView }.first {
-            $0.accessibilityLabel() == L10n.tr("image_upload.history.list_accessibility")
-        })
-        historyTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        let copyButton = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
-            $0.title == L10n.tr("image_upload.history.copy")
+        // History tab copy & clear actions.
+        uploadView.selectTab(.history)
+        let copyButton = try XCTUnwrap(descendants(uploadView).compactMap { $0 as? NSButton }.first {
+            $0.accessibilityLabel() == L10n.format("image_upload.row.copy_accessibility", "a.png")
         })
         copyButton.performClick(nil)
         XCTAssertEqual(copiedItem?.id, "h1")
 
-        let clearButton = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+        let clearButton = try XCTUnwrap(descendants(uploadView).compactMap { $0 as? NSButton }.first {
             $0.title == L10n.tr("image_upload.history.clear")
         })
         clearButton.performClick(nil)
         XCTAssertTrue(cleared)
 
-        // Removing the host and saving cleans up the secret in Keychain/store.
-        let removeButton = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
-            $0.title == L10n.tr("image_upload.settings.remove_host")
+        // Deleting the host removes it immediately and cleans up its secret from the secret store.
+        uploadView.selectTab(.hosts)
+        let deleteButton = try XCTUnwrap(descendants(uploadView).compactMap { $0 as? NSButton }.first {
+            $0.accessibilityLabel() == L10n.format("image_upload.row.delete_accessibility", "Blog R2")
         })
-        removeButton.performClick(nil)
-        saveButton.performClick(nil)
+        deleteButton.performClick(nil)
         XCTAssertTrue(store.settings.imageUpload.hosts.isEmpty)
         XCTAssertNil(try secretStore.secret(for: savedHost.id))
     }
@@ -118,11 +121,6 @@ final class ImageUploadSettingsUITests: XCTestCase {
         views.compactMap { $0 as? NSTextField }.first {
             $0.accessibilityLabel() == L10n.tr(key)
         }
-    }
-
-    @MainActor private func setText(_ value: String, on field: NSTextField) {
-        field.stringValue = value
-        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
     }
 
     @MainActor private func descendants(_ view: NSView) -> [NSView] {

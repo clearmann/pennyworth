@@ -1,47 +1,35 @@
 import AppKit
 
+/// Segmented image-upload settings view organizing Hosts, Preferences, and History into focused tabs.
 @MainActor final class ImageUploadSettingsView: NSView {
+    enum Tab: Int, CaseIterable {
+        case hosts = 0
+        case preferences = 1
+        case history = 2
+    }
+
+    private let tabControl = NSSegmentedControl()
+    private let hostsContainer = NSStackView()
+    private let preferencesContainer = NSStackView()
+    private let historyContainer = NSStackView()
+
+    private let hostsCard = SettingsCardView()
+    private let addHostButton: NSButton
+
     private let formatPopup = NSPopUpButton()
-    private let encodeURLCheckbox = NSButton(checkboxWithTitle: L10n.tr("image_upload.settings.encode_url"), target: nil, action: nil)
+    private let encodeURLSwitch = NSSwitch()
     private let compressSlider = NSSlider(value: 100, minValue: 10, maxValue: 100, target: nil, action: nil)
-    private let compressValueLabel = NSTextField(labelWithString: "")
-    private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: nil)
-    private let fileHotKeyRecorder = HotKeyRecorderView(binding: nil)
+    private let compressValueBadge = SettingsBadgeLabel(text: "", tone: .neutral, monospaced: true, minWidth: 84)
+    private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: nil, allowsClearing: true)
+    private let fileHotKeyRecorder = HotKeyRecorderView(binding: nil, allowsClearing: true)
 
-    private let hostTableView = NSTableView()
-    private let addHostButton = NSButton(title: L10n.tr("image_upload.settings.add_host"), target: nil, action: nil)
-    private let removeHostButton = NSButton(title: L10n.tr("image_upload.settings.remove_host"), target: nil, action: nil)
-    private let setDefaultButton = NSButton(title: L10n.tr("image_upload.settings.set_default"), target: nil, action: nil)
-
-    private let providerPopup = NSPopUpButton()
-    private let nameField = NSTextField()
-    private let bucketField = NSTextField()
-    private let regionLabel = NSTextField(labelWithString: L10n.tr("image_upload.field.region"))
-    private let regionField = NSTextField()
-    private let qiniuRegionPopup = NSPopUpButton()
-    private let endpointRow = NSStackView()
-    private let endpointLabel = NSTextField(labelWithString: L10n.tr("image_upload.field.endpoint"))
-    private let endpointField = NSTextField()
-    private let pathStyleCheckbox = NSButton(checkboxWithTitle: L10n.tr("image_upload.field.path_style"), target: nil, action: nil)
-    private let accessKeyLabel = NSTextField(labelWithString: L10n.tr("image_upload.field.access_key"))
-    private let accessKeyField = NSTextField()
-    private let secretKeyLabel = NSTextField(labelWithString: L10n.tr("image_upload.field.secret_key"))
-    private let secretKeyField = NSSecureTextField()
-    private let domainLabel = NSTextField(labelWithString: L10n.tr("image_upload.field.domain"))
-    private let domainField = NSTextField()
-    private let saveKeyPathField = NSTextField()
-    private let suffixField = NSTextField()
-
-    private let historyTableView = NSTableView()
-    private let copyHistoryButton = NSButton(title: L10n.tr("image_upload.history.copy"), target: nil, action: nil)
-    private let clearHistoryButton = NSButton(title: L10n.tr("image_upload.history.clear"), target: nil, action: nil)
+    private let historyCard = SettingsCardView()
+    private let clearHistoryButton: NSButton
 
     private let secretStore: ImageUploadSecretStoring
-    private(set) var hosts: [ImageHostConfig] = []
-    private(set) var selectedHostID: String?
-    private var pendingSecrets: [String: String] = [:]
-    private var removedHostIDs = Set<String>()
+    private var appliedSettings: ImageUploadSettings = .defaults
     private var historyItems: [UploadHistoryItem] = []
+    private var activeSheet: ImageHostEditorSheet?
 
     var onRecordingStateChanged: ((Bool) -> Void)? {
         didSet {
@@ -49,11 +37,26 @@ import AppKit
             fileHotKeyRecorder.onRecordingStateChanged = onRecordingStateChanged
         }
     }
+    var onCommitSettings: ((ImageUploadSettings, (() throws -> Void)?) -> Result<Void, Error>)?
     var onCopyHistoryItem: ((UploadHistoryItem) -> Void)?
     var onClearHistory: (() -> Void)?
 
     init(secretStore: ImageUploadSecretStoring = KeychainSecretStore()) {
         self.secretStore = secretStore
+        self.addHostButton = SettingsStyle.makeButton(
+            title: L10n.tr("image_upload.settings.add_host"),
+            symbolName: "plus",
+            primary: true,
+            target: nil,
+            action: nil
+        )
+        self.clearHistoryButton = SettingsStyle.makeButton(
+            title: L10n.tr("image_upload.history.clear"),
+            symbolName: "trash",
+            primary: false,
+            target: nil,
+            action: nil
+        )
         super.init(frame: .zero)
         configure()
     }
@@ -61,135 +64,46 @@ import AppKit
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    func selectTab(_ tab: Tab) {
+        tabControl.selectedSegment = tab.rawValue
+        updateVisibleTab()
+    }
+
     func reload(_ settings: ImageUploadSettings, history: [UploadHistoryItem]) {
-        hosts = settings.hosts
-        selectedHostID = settings.selectedHostID ?? settings.hosts.first?.id
-        pendingSecrets = [:]
-        removedHostIDs = []
-
-        let formatIndex = UploadOutputFormat.allCases.firstIndex(of: settings.outputFormat) ?? 0
-        formatPopup.selectItem(at: formatIndex)
-        encodeURLCheckbox.state = settings.encodeURL ? .on : .off
-        compressSlider.integerValue = settings.compressFactor
-        updateCompressLabel()
-        clipboardHotKeyRecorder.setBinding(settings.uploadClipboardHotKey)
-        fileHotKeyRecorder.setBinding(settings.uploadFileHotKey)
-
-        hostTableView.reloadData()
-        if let active = selectedHostID, let idx = hosts.firstIndex(where: { $0.id == active }) {
-            selectHostRow(idx)
-        } else {
-            selectHostRow(hosts.isEmpty ? -1 : 0)
-        }
-
+        appliedSettings = settings
+        applyPreferencesUI(settings)
+        rebuildHostRows()
         reloadHistory(history)
     }
 
     func reloadHistory(_ items: [UploadHistoryItem]) {
         historyItems = items
-        historyTableView.reloadData()
-        updateHistoryButtons()
+        clearHistoryButton.isEnabled = !items.isEmpty
+        rebuildHistoryRows()
     }
-
-    func buildValidatedSettings() throws -> ImageUploadSettings {
-        let formatIndex = max(0, min(UploadOutputFormat.allCases.count - 1, formatPopup.indexOfSelectedItem))
-        let normalizedHosts = hosts.map(\.trimmed)
-        let normalizedDefault: String?
-        if let selectedHostID, normalizedHosts.contains(where: { $0.id == selectedHostID }) {
-            normalizedDefault = selectedHostID
-        } else {
-            normalizedDefault = normalizedHosts.first?.id
-        }
-
-        let settings = ImageUploadSettings(
-            hosts: normalizedHosts,
-            selectedHostID: normalizedDefault,
-            outputFormat: UploadOutputFormat.allCases[formatIndex],
-            compressFactor: snappedCompressFactor(),
-            encodeURL: encodeURLCheckbox.state == .on,
-            uploadClipboardHotKey: clipboardHotKeyRecorder.binding,
-            uploadFileHotKey: fileHotKeyRecorder.binding
-        )
-        try ImageUploadSettings.validate(settings)
-
-        for host in normalizedHosts {
-            let pending = pendingSecrets[host.id]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let existing = try secretStore.secret(for: host.id)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let effectiveSecret = (pending?.isEmpty == false) ? pending : existing
-            guard let effectiveSecret, !effectiveSecret.isEmpty else {
-                throw ImageUploadError.missingSecretKey(hostName: host.name)
-            }
-        }
-        return settings
-    }
-
-    func commitPendingSecrets() throws {
-        for hostID in removedHostIDs {
-            try secretStore.deleteSecret(for: hostID)
-        }
-        for (hostID, secret) in pendingSecrets {
-            let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                try secretStore.setSecret(trimmed, for: hostID)
-            }
-        }
-        removedHostIDs.removeAll()
-        pendingSecrets.removeAll()
-        updateHostEditor()
-    }
-
-    // MARK: - Layout
 
     private func configure() {
         translatesAutoresizingMaskIntoConstraints = false
-        configureGeneralControls()
-        configureHostTable()
-        configureHostEditor()
-        configureHistoryTable()
 
-        let generalSection = makeSectionHeader(L10n.tr("image_upload.section.general"))
-        let hostsSection = makeSectionHeader(L10n.tr("image_upload.section.hosts"))
-        let historySection = makeSectionHeader(L10n.tr("image_upload.section.history"))
+        tabControl.segmentCount = Tab.allCases.count
+        tabControl.trackingMode = .selectOne
+        tabControl.segmentStyle = .rounded
+        tabControl.setLabel(L10n.tr("image_upload.tab.hosts"), forSegment: Tab.hosts.rawValue)
+        tabControl.setLabel(L10n.tr("image_upload.tab.preferences"), forSegment: Tab.preferences.rawValue)
+        tabControl.setLabel(L10n.tr("image_upload.tab.history"), forSegment: Tab.history.rawValue)
+        tabControl.selectedSegment = Tab.hosts.rawValue
+        tabControl.target = self
+        tabControl.action = #selector(tabChanged)
+        tabControl.translatesAutoresizingMaskIntoConstraints = false
 
-        let compressControl = NSStackView(views: [compressSlider, compressValueLabel])
-        compressControl.alignment = .centerY
-        compressControl.spacing = 10
+        configureHostsTab()
+        configurePreferencesTab()
+        configureHistoryTab()
 
-        let hostButtons = NSStackView(views: [addHostButton, removeHostButton, setDefaultButton])
-        hostButtons.spacing = 10
-
-        let historyButtons = NSStackView(views: [copyHistoryButton, clearHistoryButton])
-        historyButtons.spacing = 10
-
-        let hostScroll = hostTableView.enclosingScrollView!
-        let historyScroll = historyTableView.enclosingScrollView!
-        let editor = buildEditorStack()
-
-        let templateNote = NSTextField(wrappingLabelWithString: L10n.tr("image_upload.settings.template_note"))
-        templateNote.font = .systemFont(ofSize: 11)
-        templateNote.textColor = .secondaryLabelColor
-
-        let stack = NSStackView(views: [
-            generalSection,
-            row(L10n.tr("image_upload.settings.output_format"), formatPopup),
-            encodeURLCheckbox,
-            row(L10n.tr("image_upload.settings.compress_quality"), compressControl),
-            row(L10n.tr("image_upload.settings.clipboard_hotkey"), clipboardHotKeyRecorder),
-            row(L10n.tr("image_upload.settings.file_hotkey"), fileHotKeyRecorder),
-            separator(),
-            hostsSection,
-            hostScroll,
-            hostButtons,
-            editor,
-            templateNote,
-            separator(),
-            historySection,
-            historyScroll,
-            historyButtons,
-        ])
+        let stack = NSStackView(views: [tabControl, hostsContainer, preferencesContainer, historyContainer])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
+        stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
@@ -198,25 +112,50 @@ import AppKit
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            hostScroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            hostScroll.heightAnchor.constraint(equalToConstant: 120),
-            editor.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            templateNote.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
-            historyScroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            historyScroll.heightAnchor.constraint(equalToConstant: 120),
+            hostsContainer.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            preferencesContainer.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            historyContainer.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
 
-        updateCompressLabel()
-        updateHostEditor()
-        updateHistoryButtons()
+        updateVisibleTab()
+        rebuildHostRows()
+        rebuildHistoryRows()
     }
 
-    private func configureGeneralControls() {
-        formatPopup.addItems(withTitles: UploadOutputFormat.allCases.map(\.title))
-        formatPopup.setAccessibilityLabel(L10n.tr("image_upload.settings.output_format"))
-        formatPopup.widthAnchor.constraint(equalToConstant: 180).isActive = true
+    private func configureHostsTab() {
+        addHostButton.target = self
+        addHostButton.action = #selector(addHostClicked)
 
-        encodeURLCheckbox.setAccessibilityLabel(L10n.tr("image_upload.settings.encode_url"))
+        let headerBar = makeHeaderBar(title: L10n.tr("image_upload.section.hosts"), accessory: addHostButton)
+        let noteLabel = NSTextField(wrappingLabelWithString: L10n.tr("settings.image_upload.note"))
+        noteLabel.font = SettingsStyle.footnoteFont
+        noteLabel.textColor = SettingsStyle.secondaryText
+
+        hostsContainer.orientation = .vertical
+        hostsContainer.alignment = .leading
+        hostsContainer.spacing = 8
+        hostsContainer.translatesAutoresizingMaskIntoConstraints = false
+        hostsContainer.addArrangedSubview(headerBar)
+        hostsContainer.addArrangedSubview(hostsCard)
+        hostsContainer.addArrangedSubview(noteLabel)
+        NSLayoutConstraint.activate([
+            headerBar.widthAnchor.constraint(equalTo: hostsContainer.widthAnchor),
+            hostsCard.widthAnchor.constraint(equalTo: hostsContainer.widthAnchor),
+            noteLabel.widthAnchor.constraint(equalTo: hostsContainer.widthAnchor),
+        ])
+    }
+
+    private func configurePreferencesTab() {
+        formatPopup.addItems(withTitles: UploadOutputFormat.allCases.map(\.title))
+        formatPopup.target = self
+        formatPopup.action = #selector(preferencesControlChanged)
+        formatPopup.setAccessibilityLabel(L10n.tr("image_upload.settings.output_format"))
+        formatPopup.widthAnchor.constraint(equalToConstant: 150).isActive = true
+
+        encodeURLSwitch.controlSize = .small
+        encodeURLSwitch.target = self
+        encodeURLSwitch.action = #selector(preferencesControlChanged)
+        encodeURLSwitch.setAccessibilityLabel(L10n.tr("image_upload.settings.encode_url"))
 
         compressSlider.numberOfTickMarks = 19
         compressSlider.allowsTickMarkValuesOnly = true
@@ -224,530 +163,392 @@ import AppKit
         compressSlider.target = self
         compressSlider.action = #selector(compressSliderChanged)
         compressSlider.setAccessibilityLabel(L10n.tr("image_upload.settings.compress_quality"))
-        compressSlider.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        compressSlider.widthAnchor.constraint(equalToConstant: 164).isActive = true
 
-        compressValueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        compressValueLabel.textColor = .secondaryLabelColor
+        let compressControl = NSStackView(views: [compressSlider, compressValueBadge])
+        compressControl.orientation = .horizontal
+        compressControl.alignment = .centerY
+        compressControl.spacing = 10
 
         clipboardHotKeyRecorder.setAccessibilityLabel(L10n.tr("image_upload.settings.clipboard_hotkey"))
+        clipboardHotKeyRecorder.onChange = { [weak self] _ in
+            self?.commitPreferencesChange()
+        }
         fileHotKeyRecorder.setAccessibilityLabel(L10n.tr("image_upload.settings.file_hotkey"))
-    }
-
-    private func configureHostTable() {
-        for (id, key, width) in [
-            ("default", "image_upload.column.default", 44.0),
-            ("name", "image_upload.column.name", 130.0),
-            ("provider", "image_upload.column.provider", 110.0),
-            ("bucket", "image_upload.column.bucket", 180.0),
-        ] {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = L10n.tr(key)
-            column.width = width
-            hostTableView.addTableColumn(column)
-        }
-        hostTableView.dataSource = self
-        hostTableView.delegate = self
-        hostTableView.rowHeight = 24
-        hostTableView.allowsMultipleSelection = false
-        hostTableView.setAccessibilityLabel(L10n.tr("image_upload.settings.hosts_list"))
-
-        let scroll = NSScrollView()
-        scroll.documentView = hostTableView
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-
-        addHostButton.target = self
-        addHostButton.action = #selector(addHostClicked)
-        removeHostButton.target = self
-        removeHostButton.action = #selector(removeHostClicked)
-        setDefaultButton.target = self
-        setDefaultButton.action = #selector(setDefaultClicked)
-    }
-
-    private func configureHostEditor() {
-        providerPopup.addItems(withTitles: ImageHostProvider.allCases.map(\.title))
-        providerPopup.target = self
-        providerPopup.action = #selector(providerChanged)
-        providerPopup.setAccessibilityLabel(L10n.tr("image_upload.field.provider"))
-        providerPopup.widthAnchor.constraint(equalToConstant: 200).isActive = true
-
-        qiniuRegionPopup.addItems(withTitles: QiniuRegion.allCases.map(\.title))
-        qiniuRegionPopup.target = self
-        qiniuRegionPopup.action = #selector(qiniuRegionChanged)
-        qiniuRegionPopup.setAccessibilityLabel(L10n.tr("image_upload.field.region"))
-        qiniuRegionPopup.widthAnchor.constraint(equalToConstant: 200).isActive = true
-
-        pathStyleCheckbox.target = self
-        pathStyleCheckbox.action = #selector(pathStyleChanged)
-
-        let textFields: [(NSTextField, String)] = [
-            (nameField, "image_upload.field.name"),
-            (bucketField, "image_upload.field.bucket"),
-            (regionField, "image_upload.field.region"),
-            (endpointField, "image_upload.field.endpoint"),
-            (accessKeyField, "image_upload.field.access_key"),
-            (secretKeyField, "image_upload.field.secret_key"),
-            (domainField, "image_upload.field.domain"),
-            (saveKeyPathField, "image_upload.field.save_key_path"),
-            (suffixField, "image_upload.field.suffix"),
-        ]
-        for (field, key) in textFields {
-            field.delegate = self
-            field.setAccessibilityLabel(L10n.tr(key))
-            field.lineBreakMode = .byTruncatingMiddle
+        fileHotKeyRecorder.onChange = { [weak self] _ in
+            self?.commitPreferencesChange()
         }
 
-        nameField.placeholderString = L10n.tr("image_upload.placeholder.name")
-        bucketField.placeholderString = L10n.tr("image_upload.placeholder.bucket")
-        saveKeyPathField.placeholderString = ImageHostConfig.defaultSaveKeyPath
-        suffixField.placeholderString = L10n.tr("image_upload.placeholder.suffix")
+        let generalSection = SettingsSectionView(
+            title: L10n.tr("image_upload.section.general"),
+            rows: [
+                SettingsRowView(title: L10n.tr("image_upload.settings.output_format"), trailingViews: [formatPopup]),
+                SettingsRowView(
+                    title: L10n.tr("image_upload.settings.encode_url"),
+                    subtitle: L10n.tr("image_upload.encode_url_subtitle"),
+                    trailingViews: [encodeURLSwitch]
+                ),
+                SettingsRowView(
+                    title: L10n.tr("image_upload.settings.compress_quality"),
+                    subtitle: L10n.tr("image_upload.compress_subtitle"),
+                    trailingViews: [compressControl]
+                ),
+            ]
+        )
+
+        let hotkeysSection = SettingsSectionView(
+            title: L10n.tr("image_upload.section.hotkeys"),
+            rows: [
+                SettingsRowView(title: L10n.tr("image_upload.settings.clipboard_hotkey"), trailingViews: [clipboardHotKeyRecorder]),
+                SettingsRowView(title: L10n.tr("image_upload.settings.file_hotkey"), trailingViews: [fileHotKeyRecorder]),
+            ]
+        )
+
+        preferencesContainer.orientation = .vertical
+        preferencesContainer.alignment = .leading
+        preferencesContainer.spacing = SettingsStyle.sectionSpacing
+        preferencesContainer.translatesAutoresizingMaskIntoConstraints = false
+        preferencesContainer.addArrangedSubview(generalSection)
+        preferencesContainer.addArrangedSubview(hotkeysSection)
+        NSLayoutConstraint.activate([
+            generalSection.widthAnchor.constraint(equalTo: preferencesContainer.widthAnchor),
+            hotkeysSection.widthAnchor.constraint(equalTo: preferencesContainer.widthAnchor),
+        ])
     }
 
-    private func buildEditorStack() -> NSStackView {
-        let regionControl = NSStackView(views: [regionField, qiniuRegionPopup])
-        regionControl.spacing = 8
-
-        endpointLabel.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        endpointRow.orientation = .horizontal
-        endpointRow.alignment = .centerY
-        endpointRow.spacing = 10
-        endpointRow.addArrangedSubview(endpointLabel)
-        endpointRow.addArrangedSubview(endpointField)
-
-        let rows: [NSView] = [
-            row(L10n.tr("image_upload.field.provider"), providerPopup),
-            row(L10n.tr("image_upload.field.name"), nameField),
-            row(L10n.tr("image_upload.field.bucket"), bucketField),
-            customLabelRow(regionLabel, regionControl),
-            endpointRow,
-            pathStyleCheckbox,
-            customLabelRow(accessKeyLabel, accessKeyField),
-            customLabelRow(secretKeyLabel, secretKeyField),
-            customLabelRow(domainLabel, domainField),
-            row(L10n.tr("image_upload.field.save_key_path"), saveKeyPathField),
-            row(L10n.tr("image_upload.field.suffix"), suffixField),
-        ]
-
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let fullWidthFields: [NSView] = [
-            nameField, bucketField, regionField, endpointField,
-            accessKeyField, secretKeyField, domainField, saveKeyPathField, suffixField,
-        ]
-        for field in fullWidthFields {
-            field.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
-            field.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -130).isActive = true
-        }
-        return stack
-    }
-
-    private func configureHistoryTable() {
-        for (id, key, width) in [
-            ("filename", "image_upload.history.column.file", 140.0),
-            ("host", "image_upload.history.column.host", 100.0),
-            ("url", "image_upload.history.column.url", 260.0),
-        ] {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = L10n.tr(key)
-            column.width = width
-            historyTableView.addTableColumn(column)
-        }
-        historyTableView.dataSource = self
-        historyTableView.delegate = self
-        historyTableView.rowHeight = 24
-        historyTableView.allowsMultipleSelection = false
-        historyTableView.setAccessibilityLabel(L10n.tr("image_upload.history.list_accessibility"))
-
-        let scroll = NSScrollView()
-        scroll.documentView = historyTableView
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-
-        copyHistoryButton.target = self
-        copyHistoryButton.action = #selector(copyHistoryClicked)
+    private func configureHistoryTab() {
         clearHistoryButton.target = self
         clearHistoryButton.action = #selector(clearHistoryClicked)
+
+        let headerBar = makeHeaderBar(title: L10n.tr("image_upload.section.history"), accessory: clearHistoryButton)
+        historyContainer.orientation = .vertical
+        historyContainer.alignment = .leading
+        historyContainer.spacing = 8
+        historyContainer.translatesAutoresizingMaskIntoConstraints = false
+        historyContainer.addArrangedSubview(headerBar)
+        historyContainer.addArrangedSubview(historyCard)
+        NSLayoutConstraint.activate([
+            headerBar.widthAnchor.constraint(equalTo: historyContainer.widthAnchor),
+            historyCard.widthAnchor.constraint(equalTo: historyContainer.widthAnchor),
+        ])
     }
 
-    private func makeSectionHeader(_ title: String) -> NSTextField {
+    private func makeHeaderBar(title: String, accessory: NSView) -> NSView {
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13, weight: .semibold)
-        return label
+        label.font = SettingsStyle.sectionTitleFont
+        label.textColor = SettingsStyle.secondaryText
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        accessory.translatesAutoresizingMaskIntoConstraints = false
+        let bar = NSView()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(label)
+        bar.addSubview(accessory)
+        NSLayoutConstraint.activate([
+            bar.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            label.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 4),
+            label.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            accessory.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            accessory.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            accessory.topAnchor.constraint(greaterThanOrEqualTo: bar.topAnchor),
+            accessory.bottomAnchor.constraint(lessThanOrEqualTo: bar.bottomAnchor),
+        ])
+        return bar
     }
 
-    private func separator() -> NSBox {
-        let box = NSBox()
-        box.boxType = .separator
-        box.translatesAutoresizingMaskIntoConstraints = false
-        return box
+    private func updateVisibleTab() {
+        let selected = Tab(rawValue: tabControl.selectedSegment) ?? .hosts
+        hostsContainer.isHidden = selected != .hosts
+        preferencesContainer.isHidden = selected != .preferences
+        historyContainer.isHidden = selected != .history
     }
 
-    private func row(_ title: String, _ control: NSView) -> NSStackView {
-        let label = NSTextField(labelWithString: title)
-        return customLabelRow(label, control)
+    private func applyPreferencesUI(_ settings: ImageUploadSettings) {
+        let formatIndex = UploadOutputFormat.allCases.firstIndex(of: settings.outputFormat) ?? 0
+        formatPopup.selectItem(at: formatIndex)
+        encodeURLSwitch.state = settings.encodeURL ? .on : .off
+        compressSlider.integerValue = settings.compressFactor
+        updateCompressBadge()
+        clipboardHotKeyRecorder.setBinding(settings.uploadClipboardHotKey)
+        fileHotKeyRecorder.setBinding(settings.uploadFileHotKey)
     }
 
-    private func customLabelRow(_ label: NSTextField, _ control: NSView) -> NSStackView {
-        label.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        let stack = NSStackView(views: [label, control])
-        stack.alignment = .centerY
-        stack.spacing = 10
-        return stack
+    private func rebuildHostRows() {
+        let hosts = appliedSettings.hosts
+        if hosts.isEmpty {
+            let empty = SettingsEmptyStateView(
+                symbolName: "icloud.and.arrow.up",
+                title: L10n.tr("image_upload.empty.hosts_title"),
+                subtitle: L10n.tr("image_upload.empty.hosts_subtitle"),
+                actionTitle: L10n.tr("image_upload.settings.add_host"),
+                target: self,
+                action: #selector(addHostClicked)
+            )
+            hostsCard.setRows([empty])
+            return
+        }
+
+        let activeID = appliedSettings.selectedHostID ?? hosts.first?.id
+        let rows = hosts.map { host -> NSView in
+            let isDefault = host.id == activeID
+            let hasSecret = ((try? secretStore.secret(for: host.id)) ?? nil)?.isEmpty == false
+
+            let iconBadge = SettingsIconBadgeView(symbolName: "icloud.fill", accented: isDefault)
+
+            var badges: [NSView] = [SettingsBadgeLabel(text: host.provider.title, tone: .neutral)]
+            if isDefault {
+                badges.insert(SettingsBadgeLabel(text: L10n.tr("image_upload.badge.default"), tone: .accent), at: 0)
+            }
+
+            let targetSummary = [host.bucket, host.domain].filter { !$0.isEmpty }.joined(separator: " · ")
+            let secretSummary = hasSecret ? L10n.tr("image_upload.badge.keychain_saved") : ""
+            let subtitle = [targetSummary, secretSummary].filter { !$0.isEmpty }.joined(separator: " · ")
+
+            var trailing: [NSView] = []
+            if !isDefault {
+                let defaultButton = SettingsStyle.makeButton(
+                    title: L10n.tr("image_upload.settings.set_default"),
+                    primary: false,
+                    target: self,
+                    action: #selector(setDefaultHostClicked(_:))
+                )
+                defaultButton.controlSize = .small
+                defaultButton.identifier = NSUserInterfaceItemIdentifier(host.id)
+                defaultButton.setAccessibilityLabel(L10n.format("image_upload.row.set_default_accessibility", host.name))
+                trailing.append(defaultButton)
+            }
+
+            let editButton = SettingsIconButton(
+                symbolName: "pencil",
+                accessibilityLabel: L10n.format("image_upload.row.edit_accessibility", host.name),
+                tooltip: L10n.tr("common.edit"),
+                target: self,
+                action: #selector(editHostClicked(_:))
+            )
+            editButton.identifier = NSUserInterfaceItemIdentifier(host.id)
+
+            let deleteButton = SettingsIconButton(
+                symbolName: "trash",
+                accessibilityLabel: L10n.format("image_upload.row.delete_accessibility", host.name),
+                tooltip: L10n.tr("common.delete"),
+                isDestructive: true,
+                target: self,
+                action: #selector(removeHostClicked(_:))
+            )
+            deleteButton.identifier = NSUserInterfaceItemIdentifier(host.id)
+
+            trailing.append(contentsOf: [editButton, deleteButton])
+
+            return SettingsRowView(
+                title: host.name,
+                subtitle: subtitle,
+                leadingView: iconBadge,
+                trailingViews: trailing,
+                titleBadges: badges
+            )
+        }
+        hostsCard.setRows(rows)
     }
 
-    // MARK: - State updates
+    private func rebuildHistoryRows() {
+        if historyItems.isEmpty {
+            let empty = SettingsEmptyStateView(
+                symbolName: "clock.arrow.circlepath",
+                title: L10n.tr("image_upload.empty.history_title"),
+                subtitle: L10n.tr("image_upload.empty.history_subtitle")
+            )
+            historyCard.setRows([empty])
+            return
+        }
+
+        let rows = historyItems.map { item -> NSView in
+            let thumbView = NSImageView()
+            thumbView.wantsLayer = true
+            thumbView.layer?.cornerRadius = 6
+            thumbView.layer?.masksToBounds = true
+            thumbView.translatesAutoresizingMaskIntoConstraints = false
+            if let data = item.thumbnailData, let img = NSImage(data: data) {
+                thumbView.image = img
+                thumbView.imageScaling = .scaleProportionallyUpOrDown
+            } else {
+                let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+                thumbView.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?
+                    .withSymbolConfiguration(config)
+                thumbView.contentTintColor = .secondaryLabelColor
+            }
+            NSLayoutConstraint.activate([
+                thumbView.widthAnchor.constraint(equalToConstant: 32),
+                thumbView.heightAnchor.constraint(equalToConstant: 32),
+            ])
+
+            let hostBadge = SettingsBadgeLabel(text: item.hostName, tone: .neutral)
+            let copyButton = SettingsStyle.makeButton(
+                title: L10n.tr("image_upload.history.copy"),
+                symbolName: "doc.on.doc",
+                primary: false,
+                target: self,
+                action: #selector(copyHistoryRowClicked(_:))
+            )
+            copyButton.controlSize = .small
+            copyButton.identifier = NSUserInterfaceItemIdentifier(item.id)
+            copyButton.setAccessibilityLabel(L10n.format("image_upload.row.copy_accessibility", item.filename))
+
+            return SettingsRowView(
+                title: item.filename,
+                subtitle: item.url,
+                leadingView: thumbView,
+                trailingViews: [copyButton],
+                titleBadges: [hostBadge]
+            )
+        }
+        historyCard.setRows(rows)
+    }
+
+    private func presentHostSheet(editing host: ImageHostConfig?) {
+        guard let window, activeSheet == nil else { return }
+        let hasStoredSecret = host.flatMap { (try? secretStore.secret(for: $0.id)) ?? nil }?.isEmpty == false
+        let defaultName = L10n.format("image_upload.default_host_name", appliedSettings.hosts.count + 1)
+
+        let sheet = ImageHostEditorSheet(
+            editing: host,
+            defaultName: defaultName,
+            hasStoredSecret: hasStoredSecret,
+            onCommit: { [weak self] candidate, newSecret in
+                guard let self else { return .success(()) }
+                let updatedHosts: [ImageHostConfig]
+                if let existing = host, let idx = self.appliedSettings.hosts.firstIndex(where: { $0.id == existing.id }) {
+                    updatedHosts = self.appliedSettings.hosts.enumerated().map { $0.offset == idx ? candidate : $0.element }
+                } else {
+                    updatedHosts = self.appliedSettings.hosts + [candidate]
+                }
+                let nextSelectedID = self.appliedSettings.selectedHostID ?? candidate.id
+                let next = ImageUploadSettings(
+                    hosts: updatedHosts,
+                    selectedHostID: nextSelectedID,
+                    outputFormat: self.appliedSettings.outputFormat,
+                    compressFactor: self.appliedSettings.compressFactor,
+                    encodeURL: self.appliedSettings.encodeURL,
+                    uploadClipboardHotKey: self.appliedSettings.uploadClipboardHotKey,
+                    uploadFileHotKey: self.appliedSettings.uploadFileHotKey
+                )
+                let afterApply: (() throws -> Void)? = newSecret.map { secret in
+                    { [secretStore = self.secretStore, hostID = candidate.id] in
+                        try secretStore.setSecret(secret, for: hostID)
+                    }
+                }
+                let result = self.onCommitSettings?(next, afterApply) ?? .success(())
+                if case .success = result {
+                    self.appliedSettings = next
+                    self.rebuildHostRows()
+                }
+                return result
+            },
+            onDismiss: { [weak self] in
+                self?.activeSheet = nil
+            }
+        )
+        activeSheet = sheet
+        sheet.present(on: window)
+    }
 
     private func snappedCompressFactor() -> Int {
         let raw = compressSlider.integerValue
         let snapped = Int((Double(raw) / 5.0).rounded()) * 5
-        return max(10, min(100, snapped))
+        return min(max(snapped, 10), 100)
     }
 
-    private func updateCompressLabel() {
-        let factor = snappedCompressFactor()
-        if factor >= 100 {
-            compressValueLabel.stringValue = L10n.tr("image_upload.settings.compress_off")
-        } else {
-            compressValueLabel.stringValue = "\(factor)%"
-        }
+    private func updateCompressBadge() {
+        let value = snappedCompressFactor()
+        let text = value >= 100 ? L10n.tr("image_upload.settings.compress_off") : "\(value)%"
+        compressValueBadge.update(text: text)
     }
 
-    private func selectHostRow(_ index: Int) {
-        if hosts.indices.contains(index) {
-            hostTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            hostTableView.scrollRowToVisible(index)
-        } else {
-            hostTableView.deselectAll(nil)
-        }
-        updateHostEditor()
-    }
-
-    private func updateHostEditor() {
-        let index = hostTableView.selectedRow
-        let hasSelection = hosts.indices.contains(index)
-        removeHostButton.isEnabled = hasSelection
-        setDefaultButton.isEnabled = hasSelection
-
-        let editableFields: [NSTextField] = [
-            nameField, bucketField, regionField, endpointField,
-            accessKeyField, secretKeyField, domainField, saveKeyPathField, suffixField,
-        ]
-        providerPopup.isEnabled = hasSelection
-        qiniuRegionPopup.isEnabled = hasSelection
-        pathStyleCheckbox.isEnabled = hasSelection
-
-        guard hasSelection else {
-            for field in editableFields {
-                field.stringValue = ""
-                field.isEnabled = false
-            }
-            regionField.isHidden = false
-            qiniuRegionPopup.isHidden = true
-            endpointRow.isHidden = false
-            pathStyleCheckbox.isHidden = false
-            return
-        }
-
-        let host = hosts[index]
-        for field in editableFields { field.isEnabled = true }
-
-        let providerIndex = ImageHostProvider.allCases.firstIndex(of: host.provider) ?? 0
-        providerPopup.selectItem(at: providerIndex)
-        nameField.stringValue = host.name
-        bucketField.stringValue = host.bucket
-        regionField.stringValue = host.region
-        endpointField.stringValue = host.endpoint
-        pathStyleCheckbox.state = host.usePathStyle ? .on : .off
-        accessKeyField.stringValue = host.accessKey
-        domainField.stringValue = host.domain
-        saveKeyPathField.stringValue = host.saveKeyPath
-        suffixField.stringValue = host.suffix
-
-        let hasStoredSecret = ((try? secretStore.secret(for: host.id)) ?? nil)?.isEmpty == false
-        if let pending = pendingSecrets[host.id] {
-            secretKeyField.stringValue = pending
-            secretKeyField.placeholderString = L10n.tr("image_upload.placeholder.secret_key")
-        } else {
-            secretKeyField.stringValue = ""
-            secretKeyField.placeholderString = hasStoredSecret
-                ? L10n.tr("image_upload.placeholder.secret_key_saved")
-                : L10n.tr("image_upload.placeholder.secret_key")
-        }
-
-        applyProviderFieldVisibility(host)
-    }
-
-    private func applyProviderFieldVisibility(_ host: ImageHostConfig) {
-        switch host.provider {
-        case .s3:
-            regionLabel.stringValue = L10n.tr("image_upload.field.region")
-            regionField.isHidden = false
-            qiniuRegionPopup.isHidden = true
-            regionField.placeholderString = "auto / us-east-1"
-            endpointRow.isHidden = false
-            endpointField.placeholderString = "https://<account>.r2.cloudflarestorage.com"
-            pathStyleCheckbox.isHidden = false
-            accessKeyLabel.stringValue = L10n.tr("image_upload.field.access_key")
-            secretKeyLabel.stringValue = L10n.tr("image_upload.field.secret_key")
-            domainLabel.stringValue = L10n.tr("image_upload.field.domain")
-            domainField.placeholderString = L10n.tr("image_upload.placeholder.domain_optional")
-        case .aliyunOSS:
-            regionLabel.stringValue = L10n.tr("image_upload.field.region")
-            regionField.isHidden = false
-            qiniuRegionPopup.isHidden = true
-            regionField.placeholderString = "oss-cn-hangzhou"
-            endpointRow.isHidden = false
-            endpointField.placeholderString = L10n.tr("image_upload.placeholder.endpoint_optional")
-            pathStyleCheckbox.isHidden = true
-            accessKeyLabel.stringValue = "AccessKey ID"
-            secretKeyLabel.stringValue = "AccessKey Secret"
-            domainLabel.stringValue = L10n.tr("image_upload.field.domain")
-            domainField.placeholderString = L10n.tr("image_upload.placeholder.domain_optional")
-        case .tencentCOS:
-            regionLabel.stringValue = L10n.tr("image_upload.field.region")
-            regionField.isHidden = false
-            qiniuRegionPopup.isHidden = true
-            regionField.placeholderString = "ap-guangzhou"
-            endpointRow.isHidden = false
-            endpointField.placeholderString = L10n.tr("image_upload.placeholder.endpoint_optional")
-            pathStyleCheckbox.isHidden = true
-            accessKeyLabel.stringValue = "SecretId"
-            secretKeyLabel.stringValue = "SecretKey"
-            domainLabel.stringValue = L10n.tr("image_upload.field.domain")
-            domainField.placeholderString = L10n.tr("image_upload.placeholder.domain_optional")
-        case .qiniu:
-            regionLabel.stringValue = L10n.tr("image_upload.field.region")
-            regionField.isHidden = true
-            qiniuRegionPopup.isHidden = false
-            let qiniuRegion = QiniuRegion(rawValue: host.region) ?? .z0
-            let qIndex = QiniuRegion.allCases.firstIndex(of: qiniuRegion) ?? 0
-            qiniuRegionPopup.selectItem(at: qIndex)
-            endpointRow.isHidden = qiniuRegion != .custom
-            endpointField.placeholderString = "https://upload.qiniup.com"
-            pathStyleCheckbox.isHidden = true
-            accessKeyLabel.stringValue = "AccessKey"
-            secretKeyLabel.stringValue = "SecretKey"
-            domainLabel.stringValue = L10n.tr("image_upload.field.domain_required")
-            domainField.placeholderString = "https://cdn.example.com"
-        }
-    }
-
-    private func replaceSelectedHost(with updated: ImageHostConfig) {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        hosts = hosts.enumerated().map { $0.offset == index ? updated : $0.element }
-        hostTableView.reloadData(
-            forRowIndexes: IndexSet(integer: index),
-            columnIndexes: IndexSet(integersIn: 0..<hostTableView.numberOfColumns)
+    private func commitPreferencesChange() {
+        let formatIndex = max(0, min(UploadOutputFormat.allCases.count - 1, formatPopup.indexOfSelectedItem))
+        let next = ImageUploadSettings(
+            hosts: appliedSettings.hosts,
+            selectedHostID: appliedSettings.selectedHostID,
+            outputFormat: UploadOutputFormat.allCases[formatIndex],
+            compressFactor: snappedCompressFactor(),
+            encodeURL: encodeURLSwitch.state == .on,
+            uploadClipboardHotKey: clipboardHotKeyRecorder.binding,
+            uploadFileHotKey: fileHotKeyRecorder.binding
         )
-    }
-
-    private func updateHistoryButtons() {
-        copyHistoryButton.isEnabled = historyItems.indices.contains(historyTableView.selectedRow)
-        clearHistoryButton.isEnabled = !historyItems.isEmpty
+        let result = onCommitSettings?(next, nil) ?? .success(())
+        switch result {
+        case .success:
+            appliedSettings = next
+        case .failure:
+            applyPreferencesUI(appliedSettings)
+        }
     }
 
     // MARK: - Actions
 
-    @objc private func compressSliderChanged() {
-        compressSlider.integerValue = snappedCompressFactor()
-        updateCompressLabel()
+    @objc private func tabChanged() {
+        updateVisibleTab()
     }
 
     @objc private func addHostClicked() {
-        let nextIndex = hosts.count + 1
-        let name = L10n.format("image_upload.default_host_name", nextIndex)
-        let created = ImageHostConfig.makeTemplate(for: .s3, name: name)
-        hosts = hosts + [created]
-        if selectedHostID == nil {
-            selectedHostID = created.id
+        presentHostSheet(editing: nil)
+    }
+
+    @objc private func editHostClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let host = appliedSettings.hosts.first(where: { $0.id == id }) else { return }
+        presentHostSheet(editing: host)
+    }
+
+    @objc private func removeHostClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        let updatedHosts = appliedSettings.hosts.filter { $0.id != id }
+        let nextSelected = appliedSettings.selectedHostID == id ? updatedHosts.first?.id : appliedSettings.selectedHostID
+        let next = ImageUploadSettings(
+            hosts: updatedHosts,
+            selectedHostID: nextSelected,
+            outputFormat: appliedSettings.outputFormat,
+            compressFactor: appliedSettings.compressFactor,
+            encodeURL: appliedSettings.encodeURL,
+            uploadClipboardHotKey: appliedSettings.uploadClipboardHotKey,
+            uploadFileHotKey: appliedSettings.uploadFileHotKey
+        )
+        let result = onCommitSettings?(next) { [secretStore] in
+            try secretStore.deleteSecret(for: id)
+        } ?? .success(())
+        if case .success = result {
+            appliedSettings = next
+            rebuildHostRows()
         }
-        hostTableView.reloadData()
-        selectHostRow(hosts.count - 1)
-        window?.makeFirstResponder(nameField)
     }
 
-    @objc private func removeHostClicked() {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        let removed = hosts[index]
-        removedHostIDs.insert(removed.id)
-        pendingSecrets.removeValue(forKey: removed.id)
-        hosts = hosts.enumerated().filter { $0.offset != index }.map(\.element)
-        if selectedHostID == removed.id {
-            selectedHostID = hosts.first?.id
+    @objc private func setDefaultHostClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              appliedSettings.hosts.contains(where: { $0.id == id }) else { return }
+        let next = appliedSettings.withSelectedHostID(id)
+        let result = onCommitSettings?(next, nil) ?? .success(())
+        if case .success = result {
+            appliedSettings = next
+            rebuildHostRows()
         }
-        hostTableView.reloadData()
-        selectHostRow(min(index, hosts.count - 1))
     }
 
-    @objc private func setDefaultClicked() {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        selectedHostID = hosts[index].id
-        hostTableView.reloadData()
-        hostTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+    @objc private func preferencesControlChanged() {
+        commitPreferencesChange()
     }
 
-    @objc private func providerChanged() {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        let current = hosts[index]
-        let pIndex = max(0, min(ImageHostProvider.allCases.count - 1, providerPopup.indexOfSelectedItem))
-        let nextProvider = ImageHostProvider.allCases[pIndex]
-        guard nextProvider != current.provider else { return }
-
-        let template = ImageHostConfig.makeTemplate(for: nextProvider, name: current.name)
-        let updated = ImageHostConfig(
-            id: current.id,
-            name: current.name,
-            provider: nextProvider,
-            bucket: current.bucket,
-            region: template.region,
-            endpoint: nextProvider == .qiniu ? "" : current.endpoint,
-            accessKey: current.accessKey,
-            domain: current.domain,
-            saveKeyPath: current.saveKeyPath,
-            suffix: current.suffix,
-            usePathStyle: template.usePathStyle
-        )
-        replaceSelectedHost(with: updated)
-        updateHostEditor()
+    @objc private func compressSliderChanged() {
+        compressSlider.integerValue = snappedCompressFactor()
+        updateCompressBadge()
+        commitPreferencesChange()
     }
 
-    @objc private func qiniuRegionChanged() {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        let current = hosts[index]
-        let rIndex = max(0, min(QiniuRegion.allCases.count - 1, qiniuRegionPopup.indexOfSelectedItem))
-        let region = QiniuRegion.allCases[rIndex]
-        let updated = ImageHostConfig(
-            id: current.id,
-            name: current.name,
-            provider: current.provider,
-            bucket: current.bucket,
-            region: region.rawValue,
-            endpoint: region == .custom ? current.endpoint : "",
-            accessKey: current.accessKey,
-            domain: current.domain,
-            saveKeyPath: current.saveKeyPath,
-            suffix: current.suffix,
-            usePathStyle: current.usePathStyle
-        )
-        replaceSelectedHost(with: updated)
-        applyProviderFieldVisibility(updated)
-    }
-
-    @objc private func pathStyleChanged() {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        let current = hosts[index]
-        let updated = ImageHostConfig(
-            id: current.id,
-            name: current.name,
-            provider: current.provider,
-            bucket: current.bucket,
-            region: current.region,
-            endpoint: current.endpoint,
-            accessKey: current.accessKey,
-            domain: current.domain,
-            saveKeyPath: current.saveKeyPath,
-            suffix: current.suffix,
-            usePathStyle: pathStyleCheckbox.state == .on
-        )
-        replaceSelectedHost(with: updated)
-    }
-
-    @objc private func copyHistoryClicked() {
-        let index = historyTableView.selectedRow
-        guard historyItems.indices.contains(index) else { return }
-        onCopyHistoryItem?(historyItems[index])
+    @objc private func copyHistoryRowClicked(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let item = historyItems.first(where: { $0.id == id }) else { return }
+        onCopyHistoryItem?(item)
     }
 
     @objc private func clearHistoryClicked() {
         onClearHistory?()
-    }
-}
-
-extension ImageUploadSettingsView: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        tableView === hostTableView ? hosts.count : historyItems.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let columnID = tableColumn?.identifier.rawValue ?? ""
-        let text: String
-        if tableView === hostTableView {
-            let host = hosts[row]
-            switch columnID {
-            case "default": text = host.id == selectedHostID ? "★" : ""
-            case "name": text = host.name
-            case "provider": text = host.provider.title
-            case "bucket": text = host.bucket.isEmpty ? host.domain : host.bucket
-            default: text = ""
-            }
-        } else {
-            let item = historyItems[row]
-            switch columnID {
-            case "filename": text = item.filename
-            case "host": text = item.hostName
-            case "url": text = item.url
-            default: text = ""
-            }
-        }
-
-        let cellID = NSUserInterfaceItemIdentifier("ImageUploadCell.\(columnID)")
-        let cell = (tableView.makeView(withIdentifier: cellID, owner: self) as? NSTextField)
-            ?? NSTextField(labelWithString: "")
-        cell.identifier = cellID
-        cell.stringValue = text
-        cell.lineBreakMode = .byTruncatingMiddle
-        cell.font = .systemFont(ofSize: 12)
-        if tableView === hostTableView && columnID == "default" {
-            cell.alignment = .center
-        }
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        if (notification.object as? NSTableView) === hostTableView {
-            updateHostEditor()
-        } else if (notification.object as? NSTableView) === historyTableView {
-            updateHistoryButtons()
-        }
-    }
-}
-
-extension ImageUploadSettingsView: NSTextFieldDelegate {
-    func controlTextDidChange(_ obj: Notification) {
-        let index = hostTableView.selectedRow
-        guard hosts.indices.contains(index) else { return }
-        let current = hosts[index]
-
-        if (obj.object as? NSTextField) === secretKeyField {
-            pendingSecrets[current.id] = secretKeyField.stringValue
-            return
-        }
-
-        let updated = ImageHostConfig(
-            id: current.id,
-            name: nameField.stringValue,
-            provider: current.provider,
-            bucket: bucketField.stringValue,
-            region: current.provider == .qiniu ? current.region : regionField.stringValue,
-            endpoint: endpointField.stringValue,
-            accessKey: accessKeyField.stringValue,
-            domain: domainField.stringValue,
-            saveKeyPath: saveKeyPathField.stringValue,
-            suffix: suffixField.stringValue,
-            usePathStyle: current.usePathStyle
-        )
-        replaceSelectedHost(with: updated)
     }
 }

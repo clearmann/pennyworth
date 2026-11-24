@@ -66,6 +66,64 @@ final class BookmarkCoreTests: XCTestCase {
         XCTAssertEqual(store.snapshots[profile.path]?.entries.count, 1)
     }
 
+    @MainActor func testDualWriteProfileWithPlaintextAndEncryptedBookmarksReadsPlaintext() async throws {
+        let root = try temporaryDirectory()
+        let profile = root.appendingPathComponent("Default")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try writeBookmarks(profile, name: "Bookmarks", title: "DualWrite")
+        try Data("encrypted-sidecar".utf8).write(to: profile.appendingPathComponent("EncryptedBookmarks2"))
+        let store = BookmarkStore(fileURL: root.appendingPathComponent("state.json"))
+        try await store.discoverProfiles(root: root)
+        try store.setSelected(true, profileID: profile.path)
+        try await store.refreshSelected()
+        XCTAssertEqual(store.snapshots[profile.path]?.entries.map(\.title), ["DualWrite"])
+        XCTAssertNil(store.warning)
+    }
+
+    @MainActor func testPermissionDeniedReadErrorsUseActionableReadOnlyGuidance() async throws {
+        defer { AppLocalization.configure(language: .system) }
+        AppLocalization.configure(language: .simplifiedChinese)
+
+        let permissionErrors: [NSError] = [
+            NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError),
+            NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError),
+            NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM)),
+            NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES)),
+            NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadUnknownError,
+                userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))]
+            ),
+        ]
+        for error in permissionErrors {
+            let mapped = ChromeBookmarkReader.mapPermissionError(error)
+            XCTAssertEqual(mapped.localizedDescription, L10n.tr("bookmark.error.permission_denied"))
+            XCTAssertFalse(mapped.localizedDescription.contains("保存"))
+        }
+
+        let unrelated = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+        XCTAssertEqual((ChromeBookmarkReader.mapPermissionError(unrelated) as NSError).code, NSFileReadNoSuchFileError)
+
+        // Verify unreadable Bookmarks file triggers the friendly read-only permission error end to end.
+        let root = try temporaryDirectory()
+        let profile = root.appendingPathComponent("Default")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try writeBookmarks(profile)
+        let bookmarkFile = profile.appendingPathComponent("Bookmarks")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: bookmarkFile.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: bookmarkFile.path) }
+
+        let store = BookmarkStore(fileURL: root.appendingPathComponent("state.json"))
+        try await store.discoverProfiles(root: root)
+        try store.setSelected(true, profileID: profile.path)
+        do {
+            try await store.refreshSelected()
+            XCTFail("Unreadable bookmarks file must fail with permission error")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains(L10n.tr("bookmark.error.permission_denied")))
+        }
+    }
+
     @MainActor func testPersistenceFailureDoesNotChangeMemory() throws {
         let root = try temporaryDirectory()
         let obstruction = root.appendingPathComponent("file")

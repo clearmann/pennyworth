@@ -3,7 +3,7 @@ import AppKit
 import XCTest
 
 final class MouseScrollSettingsUITests: XCTestCase {
-    @MainActor func testMousePageEditsAndSavesScrollSettings() throws {
+    @MainActor func testMousePageEditsAndInstantAppliesScrollSettings() throws {
         _ = NSApplication.shared
         defer { AppLocalization.configure(language: .system) }
         AppLocalization.configure(language: .simplifiedChinese)
@@ -26,6 +26,7 @@ final class MouseScrollSettingsUITests: XCTestCase {
         ) {
             try store.save($0)
         }
+        controller.window?.animationBehavior = .none
         controller.showWindow(nil)
         defer { controller.close() }
         controller.selectPage("鼠标")
@@ -34,35 +35,35 @@ final class MouseScrollSettingsUITests: XCTestCase {
         let content = try XCTUnwrap(controller.window?.contentView)
         let views = descendants(content)
 
-        let reverseCheckbox = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+        let reverseSwitch = try XCTUnwrap(views.compactMap { $0 as? NSSwitch }.first {
             $0.accessibilityLabel() == "反转鼠标滚轮方向"
         })
-        let smoothCheckbox = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+        let smoothSwitch = try XCTUnwrap(views.compactMap { $0 as? NSSwitch }.first {
             $0.accessibilityLabel() == "启用平滑滚动"
         })
         let speedSlider = try XCTUnwrap(views.compactMap { $0 as? NSSlider }.first {
             $0.accessibilityLabel() == "滚动速度"
         })
-        let smoothnessPopup = try XCTUnwrap(views.compactMap { $0 as? NSPopUpButton }.first {
+        let smoothnessControl = try XCTUnwrap(views.compactMap { $0 as? NSSegmentedControl }.first {
             $0.accessibilityLabel() == "平滑度"
         })
 
         // Smoothness is disabled when smooth scrolling is off.
-        XCTAssertFalse(smoothnessPopup.isEnabled)
+        XCTAssertFalse(smoothnessControl.isEnabled)
 
-        reverseCheckbox.performClick(nil)
-        smoothCheckbox.performClick(nil)
-        XCTAssertTrue(smoothnessPopup.isEnabled)
+        reverseSwitch.state = .on
+        reverseSwitch.sendAction(reverseSwitch.action, to: reverseSwitch.target)
+        smoothSwitch.state = .on
+        smoothSwitch.sendAction(smoothSwitch.action, to: smoothSwitch.target)
+        XCTAssertTrue(smoothnessControl.isEnabled)
 
         speedSlider.doubleValue = 1.75
         speedSlider.sendAction(speedSlider.action, to: speedSlider.target)
 
-        smoothnessPopup.selectItem(at: 2) // silky
-        smoothnessPopup.sendAction(smoothnessPopup.action, to: smoothnessPopup.target)
+        smoothnessControl.selectedSegment = 2 // silky
+        smoothnessControl.sendAction(smoothnessControl.action, to: smoothnessControl.target)
 
-        let save = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "保存" })
-        save.performClick(nil)
-
+        // All changes apply immediately without a Save button.
         XCTAssertEqual(
             store.settings.mouseScroll,
             MouseScrollSettings(
@@ -84,10 +85,9 @@ final class MouseScrollSettingsUITests: XCTestCase {
         XCTAssertTrue(openedSettings)
         XCTAssertTrue(refreshedPermission)
 
-        // Reset restores default values in UI.
+        // Reset restores default values and saves immediately.
         let resetButton = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "恢复默认" })
         resetButton.performClick(nil)
-        save.performClick(nil)
         XCTAssertEqual(store.settings.mouseScroll, .defaults)
     }
 

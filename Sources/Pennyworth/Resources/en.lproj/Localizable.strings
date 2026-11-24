@@ -122,7 +122,7 @@
 "settings.save" = "Save";
 "settings.saved" = "Settings saved.";
 "settings.restart_required" = "Settings saved. Restart Pennyworth to use the selected language.";
-"settings.save_help" = "Click Save to apply general settings; bookmark options and imports are saved immediately.";
+"settings.save_help" = "Changes are saved and applied automatically.";
 "settings.page.general" = "General";
 "settings.page.default_results" = "Default Results";
 "settings.page.file_search" = "File Search";
@@ -185,9 +185,9 @@
 "settings.bookmarks.reading" = "Reading Chrome bookmarks…";
 "settings.bookmarks.import_status" = "Last successful import: %@\nImported %d; skipped %d unsupported URLs.";
 "settings.bookmarks.import_help" = "No bookmarks imported yet. Select profiles, then click Import / Refresh Now.";
-"settings.bookmarks.preference_saved" = "Bookmark options saved. General settings still require Save.";
+"settings.bookmarks.preference_saved" = "Bookmark preferences updated.";
 "settings.bookmarks.operation_succeeded" = "Bookmark operation completed and data saved.";
-"settings.bookmarks.operation_failed" = "Bookmark operation failed: %@. The last successfully imported data was preserved.";
+"settings.bookmarks.operation_failed" = "Bookmark operation failed: %@ (previous imported data preserved)";
 "settings.bookmarks.choose_message" = "Choose a Chrome data directory containing a Default or Profile subdirectory.";
 "settings.bookmarks.clear_title" = "Clear imported bookmarks?";
 "settings.bookmarks.clear_message" = "This removes only Pennyworth's saved copy and does not modify Chrome. You can import them again later.";
@@ -195,7 +195,8 @@
 
 "bookmark.error.too_large" = "The bookmark file exceeds the 32 MB limit.";
 "bookmark.error.symlink" = "The profile path has become a symbolic link. Please select it again.";
-"bookmark.error.encrypted" = "Encrypted Chrome bookmarks are not supported; the previously imported data was preserved.";
+"bookmark.error.encrypted" = "Only encrypted Chrome bookmarks were found, which are not currently supported.";
+"bookmark.error.permission_denied" = "macOS blocked Pennyworth from reading Chrome bookmarks (read-only access). Click “Choose Chrome Data Directory…” to grant access, or allow Pennyworth in System Settings → Privacy & Security → Full Disk Access.";
 "bookmark.error.not_found" = "No Chrome bookmark file was found.";
 "bookmark.error.outside_profile" = "Bookmark files cannot point outside the profile directory.";
 "bookmark.error.invalid_structure" = "Invalid Chrome bookmark structure.";
@@ -278,7 +279,7 @@
 "settings.general.right_command_note" = "With F19 alone as the global hotkey, tap and release Right ⌘ to show or hide search. Right ⌘ shortcuts do not also open search. Left ⌘ is unchanged.";
 "settings.page.app_shortcuts" = "App Shortcuts";
 "settings.app_shortcuts.description" = "Assign global keyboard shortcuts to launch or switch to applications directly.";
-"settings.app_shortcuts.note" = "Right Command shortcuts (such as Right ⌘W) work independently from Left Command shortcuts (such as Left ⌘W to close windows). Click Save to apply.";
+"settings.app_shortcuts.note" = "Right Command shortcuts (such as Right ⌘W) work independently from Left Command shortcuts (such as Left ⌘W to close windows). Click any shortcut pill to re-record inline.";
 "app_shortcuts.column.app" = "Application";
 "app_shortcuts.column.hotkey" = "Shortcut";
 "app_shortcuts.column.path" = "Path";
@@ -301,7 +302,7 @@
 
 "settings.page.mouse" = "Mouse";
 "settings.mouse.description" = "Reverse physical mouse wheel scrolling independently of the trackpad and enable smooth inertial scrolling.";
-"settings.mouse.note" = "Applies globally to physical mouse wheels only; trackpad gestures and Command/Control zoom scrolling remain untouched. Click Save to apply.";
+"settings.mouse.note" = "Applies globally to physical mouse wheels only; trackpad gestures and Command/Control zoom scrolling remain untouched.";
 "mouse.reverse_scroll" = "Reverse mouse wheel scroll direction (independent of trackpad)";
 "mouse.reverse_scroll_accessibility" = "Reverse mouse wheel scroll direction";
 "mouse.smooth_scroll" = "Enable smooth mouse wheel scrolling";
@@ -317,7 +318,7 @@
 "mouse.permission.refresh" = "Check Again";
 "mouse.permission.settings_failed" = "Could not open Accessibility settings. Please open System Settings manually.";
 "mouse.permission.status.active" = "Accessibility Permission: Granted · Mouse scroll enhancement is active.";
-"mouse.permission.status.granted" = "Accessibility Permission: Granted (enable an option below and save to activate).";
+"mouse.permission.status.granted" = "Accessibility Permission: Granted (enable any option below to activate).";
 "mouse.permission.status.not_granted" = "Accessibility Permission: Not granted (required to modify mouse wheel scrolling).";
 "mouse.permission.status.awaiting" = "Waiting for Accessibility Permission: allow Pennyworth in System Settings → Privacy & Security → Accessibility. It will activate automatically once granted.";
 "mouse.permission.status.tap_failed" = "Accessibility is granted, but the scroll event monitor failed to start. Try quitting and reopening Pennyworth.";
@@ -325,7 +326,7 @@
 
 "settings.page.image_upload" = "Image Upload";
 "settings.image_upload.description" = "Upload images or files to S3-compatible storage, Aliyun OSS, Tencent COS, or Qiniu Kodo and copy the link automatically.";
-"settings.image_upload.note" = "Secret keys are stored securely in macOS Keychain and never written to plain-text settings. Drag files onto the menu bar icon to upload. Click Save to apply.";
+"settings.image_upload.note" = "Secret keys are stored securely in macOS Keychain and never written to plain-text settings. Drag files onto the menu bar icon to upload.";
 
 "menu.upload_file" = "Upload File…";
 "menu.upload_file_hotkey" = "Upload File… (%@)";
@@ -431,4 +432,111 @@
 "image_upload.error.invalid_response" = "Unexpected server response: %@";
 "image_upload.error.keychain_failure" = "Keychain operation failed (status %d).";
 "image_upload.error.hotkey_registration_failed" = "Could not register the upload hotkey %@. Another app may own this combination; choose a different one in Settings.";
+
+"settings.group.basics" = "General";
+"settings.group.search" = "Search & Launcher";
+"settings.group.tools" = "Utilities";
+"common.edit" = "Edit";
+"common.delete" = "Delete";
+"common.dismiss" = "Dismiss";
+"common.always_on" = "Always On";
+"hotkey.clear_accessibility" = "Clear shortcut";
+"hotkey.click_short" = "Record…";
+"hotkey.recording_short" = "Press keys…";
+
+"settings.general.section.appearance" = "Language";
+"settings.general.section.hotkeys" = "Global Hotkeys";
+"settings.general.section.usage" = "Ranking & Usage";
+"settings.general.language_subtitle" = "Requires restarting Pennyworth to take effect";
+"settings.general.hotkey_subtitle" = "Show or hide the launcher panel from any app";
+"settings.general.clipboard_subtitle" = "Search and restore recent clipboard history";
+"settings.general.remember_subtitle" = "Automatically rank frequently used apps higher";
+"settings.general.clear_usage_title" = "Usage History";
+"settings.general.clear_usage_subtitle" = "Reset recorded launch counts back to default ranking";
+
+"app_shortcuts.empty.title" = "No App Shortcuts Yet";
+"app_shortcuts.empty.subtitle" = "Bind global hotkeys to frequently used apps to launch or switch to them instantly.";
+"app_shortcuts.sheet.title" = "Add App Shortcut";
+"app_shortcuts.sheet.search_placeholder" = "Search installed applications…";
+"app_shortcuts.sheet.browse_other" = "Browse Other App…";
+"app_shortcuts.sheet.no_results" = "No matching apps. Use “Browse Other App…” below to choose one manually.";
+"app_shortcuts.sheet.selected_app" = "Selected App";
+"app_shortcuts.row.toggle_accessibility" = "Enable shortcut for %@";
+"app_shortcuts.row.delete_accessibility" = "Delete shortcut for %@";
+"app_shortcuts.row.hotkey_accessibility" = "Shortcut for %@";
+
+"settings.default_results.section.sources" = "Default Sources";
+"settings.default_results.section.fallback" = "Fallback";
+"settings.default_results.apps_title" = "Applications";
+"settings.default_results.bookmarks_title" = "Chrome Bookmarks";
+"settings.default_results.bookmarks_subtitle" = "When off, type bm in the launcher to search bookmarks";
+"settings.default_results.fallback_subtitle" = "Choose when to append a default web search option";
+
+"settings.file_search.section.directories" = "Indexed Directories";
+"settings.file_search.section.commands" = "Quick Commands";
+"settings.file_search.empty.title" = "No Search Directories";
+"settings.file_search.empty.subtitle" = "Add folders like Documents, Desktop, or Downloads to search files by pressing Space.";
+"settings.file_search.remove_accessibility" = "Remove directory %@";
+"settings.file_search.cmd_open_title" = "Open File";
+"settings.file_search.cmd_open_subtitle" = "Open the matched file with its default app";
+"settings.file_search.cmd_find_title" = "Reveal in Finder";
+"settings.file_search.cmd_find_subtitle" = "Locate and select the matched file in Finder";
+
+"web_search.section.default_engine" = "Default Engine";
+"web_search.section.keywords" = "Keyword Searches";
+"web_search.engine_subtitle" = "Used for fallback search and direct web queries";
+"web_search.sheet.add_title" = "Add Custom Search";
+"web_search.sheet.edit_title" = "Edit Custom Search";
+"web_search.sheet.url_hint" = "Use {query} as the query placeholder. Only http:// and https:// URLs are supported.";
+"web_search.row.toggle_accessibility" = "Enable %@ web search";
+"web_search.row.edit_accessibility" = "Edit %@ web search";
+"web_search.row.delete_accessibility" = "Delete %@ web search";
+
+"settings.bookmarks.section.general" = "Bookmark Search";
+"settings.bookmarks.section.profiles" = "Chrome Profiles & Import";
+"settings.bookmarks.section.matching" = "Matching";
+"settings.bookmarks.section.storage" = "Local Data";
+"settings.bookmarks.enabled_subtitle" = "Allow searching imported Chrome bookmarks in the launcher";
+"settings.bookmarks.clear_subtitle" = "Deletes only Pennyworth's local copy without touching Chrome";
+
+"settings.calculator.section.usage" = "How to Use";
+"settings.calculator.direct_title" = "Direct Expressions";
+"settings.calculator.prefix_title" = "Explicit Mode";
+"settings.calculator.prefix_subtitle" = "Prefix with = to explicitly enter calculator mode";
+"settings.calculator.copy_title" = "Copy Result";
+"settings.calculator.copy_subtitle" = "Press Return on a result to copy it to the clipboard";
+
+"settings.screenshots.section.hotkey" = "Shortcut";
+"settings.screenshots.section.commands" = "Launcher Commands";
+"settings.screenshots.hotkey_subtitle" = "Click the clear button or press Delete while recording to disable";
+
+"mouse.section.permission" = "Accessibility Permission";
+"mouse.section.behavior" = "Scroll Enhancement";
+"mouse.reverse_subtitle" = "Reverses physical mouse wheels only; trackpad scrolling is unchanged";
+"mouse.smooth_subtitle" = "Adds smooth inertial scrolling for stepped mouse wheels";
+"mouse.speed_subtitle" = "Adjust physical mouse wheel speed multiplier (0.5x – 3.0x)";
+"mouse.smoothness_subtitle" = "Choose the damping feel when smooth scrolling is enabled";
+
+"image_upload.tab.hosts" = "Hosts";
+"image_upload.tab.preferences" = "Preferences";
+"image_upload.tab.history" = "History";
+"image_upload.section.hotkeys" = "Upload Hotkeys";
+"image_upload.empty.hosts_title" = "No Image Hosts Configured";
+"image_upload.empty.hosts_subtitle" = "Supports S3 / R2, Aliyun OSS, Tencent COS, and Qiniu Kodo. Secrets are stored in macOS Keychain.";
+"image_upload.empty.history_title" = "No Upload History";
+"image_upload.empty.history_subtitle" = "Uploaded images and files dropped onto the menu bar icon will appear here.";
+"image_upload.badge.default" = "Default";
+"image_upload.badge.keychain_saved" = "Keychain Saved";
+"image_upload.sheet.add_title" = "Add Image Host";
+"image_upload.sheet.edit_title" = "Edit Image Host";
+"image_upload.sheet.section.basic" = "Basic";
+"image_upload.sheet.section.auth" = "Storage & Credentials";
+"image_upload.sheet.section.delivery" = "Delivery & Path";
+"image_upload.row.set_default_accessibility" = "Set %@ as default host";
+"image_upload.row.edit_accessibility" = "Edit host %@";
+"image_upload.row.delete_accessibility" = "Delete host %@";
+"image_upload.row.copy_accessibility" = "Copy link for %@";
+"image_upload.encode_url_subtitle" = "Percent-encode non-ASCII and special characters in output URLs";
+"image_upload.compress_subtitle" = "Keep 100% for lossless original upload, or lower to reduce file size";
+"image_upload.history.copied_feedback" = "Link copied to clipboard.";
 

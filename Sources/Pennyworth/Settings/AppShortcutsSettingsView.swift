@@ -1,40 +1,26 @@
 import AppKit
-import UniformTypeIdentifiers
 
+/// Card-based list of per-application global shortcuts with inline recording, switches, and deletion.
 @MainActor final class AppShortcutsSettingsView: NSView {
-    struct Draft: Equatable {
-        let id: String
-        let bundleIdentifier: String?
-        let appPath: String
-        let appName: String
-        let hotKey: HotKeyPreset?
-        let isEnabled: Bool
-    }
-
-    private struct AppOption: Equatable {
-        let name: String
-        let path: String
-        let bundleIdentifier: String?
-    }
-
-    private let tableView = NSTableView()
-    private let appPopup = NSPopUpButton()
-    private let chooseAppButton = NSButton(title: L10n.tr("app_shortcuts.choose_app"), target: nil, action: nil)
-    private let recorderView = HotKeyRecorderView(binding: nil)
-    private let addButton = NSButton(title: L10n.tr("app_shortcuts.add"), target: nil, action: nil)
-    private let removeButton = NSButton(title: L10n.tr("app_shortcuts.remove"), target: nil, action: nil)
-    private let enabledButton = NSButton(checkboxWithTitle: L10n.tr("common.enabled"), target: nil, action: nil)
+    private let listCard = SettingsCardView()
     private var availableApps: [AppItem] = []
-    private var appOptions: [AppOption] = []
-    private(set) var drafts: [Draft] = []
+    private(set) var shortcuts: [AppShortcut] = []
+    private var activeSheet: AppShortcutEditorSheet?
 
-    var onRecordingStateChanged: ((Bool) -> Void)? {
-        didSet { recorderView.onRecordingStateChanged = onRecordingStateChanged }
-    }
+    var onRecordingStateChanged: ((Bool) -> Void)?
+    var onCommitShortcuts: (([AppShortcut]) -> Result<Void, Error>)?
 
     init() {
         super.init(frame: .zero)
-        configure()
+        translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listCard)
+        NSLayoutConstraint.activate([
+            listCard.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listCard.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listCard.topAnchor.constraint(equalTo: topAnchor),
+            listCard.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        rebuildRows()
     }
 
     @available(*, unavailable)
@@ -42,340 +28,159 @@ import UniformTypeIdentifiers
 
     func reload(_ shortcuts: [AppShortcut], availableApps: [AppItem]) {
         self.availableApps = availableApps
-        drafts = shortcuts.map {
-            Draft(
-                id: $0.id,
-                bundleIdentifier: $0.bundleIdentifier,
-                appPath: $0.appPath,
-                appName: $0.appName,
-                hotKey: $0.hotKey,
-                isEnabled: $0.isEnabled
-            )
-        }
-        tableView.reloadData()
-        selectRow(at: drafts.isEmpty ? -1 : 0)
+        self.shortcuts = shortcuts
+        rebuildRows()
     }
 
     func updateAvailableApps(_ apps: [AppItem]) {
         availableApps = apps
-        updateEditor()
     }
 
-    func validatedShortcuts() throws -> [AppShortcut] {
-        try drafts.map { draft in
-            guard !draft.appPath.isEmpty,
-                  !draft.appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw AppShortcutValidationError.invalidApplication
+    @objc func presentAddSheet() {
+        guard let window, activeSheet == nil else { return }
+        let existingPaths = Set(shortcuts.map(\.appPath))
+        let sheet = AppShortcutEditorSheet(
+            availableApps: availableApps,
+            existingPaths: existingPaths,
+            onRecordingStateChanged: { [weak self] recording in
+                self?.onRecordingStateChanged?(recording)
+            },
+            onCommit: { [weak self] created in
+                guard let self else { return .success(()) }
+                let updated = self.shortcuts + [created]
+                let result = self.onCommitShortcuts?(updated) ?? .success(())
+                if case .success = result {
+                    self.shortcuts = updated
+                    self.rebuildRows()
+                }
+                return result
+            },
+            onDismiss: { [weak self] in
+                self?.activeSheet = nil
             }
-            guard let hotKey = draft.hotKey else {
-                throw AppShortcutValidationError.missingHotKey
-            }
-            return AppShortcut(
-                id: draft.id,
-                bundleIdentifier: draft.bundleIdentifier,
-                appPath: draft.appPath,
-                appName: draft.appName,
-                hotKey: hotKey,
-                isEnabled: draft.isEnabled
+        )
+        activeSheet = sheet
+        sheet.present(on: window)
+    }
+
+    private func rebuildRows() {
+        if shortcuts.isEmpty {
+            let empty = SettingsEmptyStateView(
+                symbolName: "command",
+                title: L10n.tr("app_shortcuts.empty.title"),
+                subtitle: L10n.tr("app_shortcuts.empty.subtitle"),
+                actionTitle: L10n.tr("app_shortcuts.add"),
+                target: self,
+                action: #selector(presentAddSheet)
             )
+            listCard.setRows([empty])
+            return
         }
+
+        let rows = shortcuts.map { buildRow(for: $0) }
+        listCard.setRows(rows)
     }
 
-    private func configure() {
-        translatesAutoresizingMaskIntoConstraints = false
-        configureTable()
-        configureControls()
-        let scroll = tableView.enclosingScrollView!
-        let editor = buildEditorStack()
-        let actions = NSStackView(views: [addButton, removeButton, enabledButton])
-        actions.spacing = 12
-        actions.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(editor)
-        addSubview(actions)
+    private func buildRow(for shortcut: AppShortcut) -> NSView {
+        let iconView = NSImageView(image: SettingsStyle.applicationIcon(forPath: shortcut.appPath))
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 184),
-            editor.leadingAnchor.constraint(equalTo: leadingAnchor),
-            editor.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 14),
-            actions.leadingAnchor.constraint(equalTo: leadingAnchor),
-            actions.topAnchor.constraint(equalTo: editor.bottomAnchor, constant: 14),
-            actions.bottomAnchor.constraint(equalTo: bottomAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 32),
+            iconView.heightAnchor.constraint(equalToConstant: 32),
         ])
-    }
+        iconView.alphaValue = shortcut.isEnabled ? 1.0 : 0.45
 
-    private func configureTable() {
-        for (id, key, width) in [
-            ("app", "app_shortcuts.column.app", 150.0),
-            ("hotkey", "app_shortcuts.column.hotkey", 110.0),
-            ("path", "app_shortcuts.column.path", 220.0),
-            ("enabled", "common.enabled", 50.0),
-        ] {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = L10n.tr(key)
-            column.width = width
-            tableView.addTableColumn(column)
+        let recorder = HotKeyRecorderView(binding: shortcut.hotKey, allowsClearing: false, compact: true)
+        recorder.setAccessibilityLabel(L10n.format("app_shortcuts.row.hotkey_accessibility", shortcut.appName))
+        recorder.onRecordingStateChanged = { [weak self] recording in
+            self?.onRecordingStateChanged?(recording)
         }
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.rowHeight = 24
-        tableView.intercellSpacing = NSSize(width: 4, height: 2)
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        tableView.allowsMultipleSelection = false
-        tableView.setAccessibilityLabel(L10n.tr("app_shortcuts.list_accessibility"))
-        let scroll = NSScrollView()
-        scroll.documentView = tableView
-        scroll.hasVerticalScroller = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-    }
+        recorder.onChange = { [weak self, weak recorder] nextHotKey in
+            guard let self, let nextHotKey else { return }
+            self.updateHotKey(forID: shortcut.id, to: nextHotKey, recorder: recorder)
+        }
 
-    private func configureControls() {
-        appPopup.target = self
-        appPopup.action = #selector(appSelectionChanged)
-        appPopup.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        appPopup.setAccessibilityLabel(L10n.tr("app_shortcuts.field.app"))
-        chooseAppButton.target = self
-        chooseAppButton.action = #selector(chooseApplicationFromDisk)
-        recorderView.setAccessibilityLabel(L10n.tr("app_shortcuts.recorder_accessibility"))
-        recorderView.onChange = { [weak self] binding in
-            self?.updateSelectedHotKey(binding)
-        }
-        addButton.target = self
-        addButton.action = #selector(addShortcut)
-        removeButton.target = self
-        removeButton.action = #selector(removeShortcut)
-        enabledButton.target = self
-        enabledButton.action = #selector(toggleEnabled)
-        enabledButton.setAccessibilityLabel(L10n.tr("app_shortcuts.enable_selected"))
-    }
+        let toggle = NSSwitch()
+        toggle.controlSize = .small
+        toggle.state = shortcut.isEnabled ? .on : .off
+        toggle.identifier = NSUserInterfaceItemIdentifier(shortcut.id)
+        toggle.target = self
+        toggle.action = #selector(toggleShortcut(_:))
+        toggle.setAccessibilityLabel(L10n.format("app_shortcuts.row.toggle_accessibility", shortcut.appName))
 
-    private func buildEditorStack() -> NSStackView {
-        let appPickerRow = NSStackView(views: [appPopup, chooseAppButton])
-        appPickerRow.spacing = 8
-        let stack = NSStackView(views: [
-            labeledRow(L10n.tr("app_shortcuts.field.app"), appPickerRow),
-            labeledRow(L10n.tr("app_shortcuts.field.hotkey"), recorderView),
-        ])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        return stack
-    }
+        let deleteButton = SettingsIconButton(
+            symbolName: "trash",
+            accessibilityLabel: L10n.format("app_shortcuts.row.delete_accessibility", shortcut.appName),
+            tooltip: L10n.tr("common.delete"),
+            isDestructive: true,
+            target: self,
+            action: #selector(deleteShortcut(_:))
+        )
+        deleteButton.identifier = NSUserInterfaceItemIdentifier(shortcut.id)
 
-    private func labeledRow(_ title: String, _ control: NSView) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.widthAnchor.constraint(equalToConstant: 92).isActive = true
-        let row = NSStackView(views: [label, control])
-        row.alignment = .centerY
-        row.spacing = 12
-        return row
-    }
-
-    private func selectRow(at index: Int) {
-        if drafts.indices.contains(index) {
-            tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            tableView.scrollRowToVisible(index)
-        } else {
-            tableView.deselectAll(nil)
-        }
-        updateEditor()
-    }
-
-    private func updateEditor() {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else {
-            appOptions = []
-            appPopup.removeAllItems()
-            appPopup.addItem(withTitle: L10n.tr("app_shortcuts.no_selection"))
-            appPopup.isEnabled = false
-            chooseAppButton.isEnabled = false
-            recorderView.setBinding(nil)
-            recorderView.isEnabled = false
-            removeButton.isEnabled = false
-            enabledButton.isEnabled = false
-            enabledButton.state = .off
-            return
-        }
-        let current = drafts[index]
-        rebuildAppPopup(selected: current)
-        appPopup.isEnabled = !appOptions.isEmpty
-        chooseAppButton.isEnabled = true
-        recorderView.isEnabled = true
-        recorderView.setBinding(current.hotKey)
-        removeButton.isEnabled = true
-        enabledButton.isEnabled = true
-        enabledButton.state = current.isEnabled ? .on : .off
-    }
-
-    private func rebuildAppPopup(selected: Draft) {
-        var options = availableApps.map { item in
-            AppOption(
-                name: item.name,
-                path: item.url.standardizedFileURL.path,
-                bundleIdentifier: Bundle(url: item.url)?.bundleIdentifier
-            )
-        }
-        if !selected.appPath.isEmpty, !options.contains(where: { $0.path == selected.appPath }) {
-            options = [AppOption(name: selected.appName, path: selected.appPath, bundleIdentifier: selected.bundleIdentifier)] + options
-        }
-        appOptions = options
-        appPopup.removeAllItems()
-        if options.isEmpty {
-            appPopup.addItem(withTitle: L10n.tr("app_shortcuts.choose_prompt"))
-            return
-        }
-        for (idx, option) in options.enumerated() {
-            let duplicateName = options.filter { $0.name == option.name }.count > 1
-            let title = duplicateName ? "\(option.name) (\(option.path))" : option.name
-            appPopup.menu?.addItem(withTitle: title, action: nil, keyEquivalent: "")
-            if option.path == selected.appPath {
-                appPopup.selectItem(at: idx)
-            }
-        }
-    }
-
-    private func replaceSelected(with updated: Draft) {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else { return }
-        drafts = drafts.enumerated().map { $0.offset == index ? updated : $0.element }
-        tableView.reloadData(
-            forRowIndexes: IndexSet(integer: index),
-            columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+        return SettingsRowView(
+            title: shortcut.appName,
+            subtitle: SettingsStyle.abbreviatedPath(shortcut.appPath),
+            leadingView: iconView,
+            trailingViews: [recorder, toggle, deleteButton],
+            dimmed: !shortcut.isEnabled
         )
     }
 
-    private func updateSelectedHotKey(_ binding: HotKeyPreset?) {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else { return }
-        let current = drafts[index]
-        replaceSelected(with: Draft(
+    private func updateHotKey(forID id: String, to hotKey: HotKeyPreset, recorder: HotKeyRecorderView?) {
+        guard let index = shortcuts.firstIndex(where: { $0.id == id }) else { return }
+        let current = shortcuts[index]
+        guard current.hotKey != hotKey else { return }
+        let replacement = AppShortcut(
             id: current.id,
             bundleIdentifier: current.bundleIdentifier,
             appPath: current.appPath,
             appName: current.appName,
-            hotKey: binding,
+            hotKey: hotKey,
             isEnabled: current.isEnabled
-        ))
-    }
-
-    @objc private func appSelectionChanged() {
-        let index = tableView.selectedRow
-        let optionIndex = appPopup.indexOfSelectedItem
-        guard drafts.indices.contains(index), appOptions.indices.contains(optionIndex) else { return }
-        let current = drafts[index]
-        let option = appOptions[optionIndex]
-        replaceSelected(with: Draft(
-            id: current.id,
-            bundleIdentifier: option.bundleIdentifier,
-            appPath: option.path,
-            appName: option.name,
-            hotKey: current.hotKey,
-            isEnabled: current.isEnabled
-        ))
-    }
-
-    @objc private func chooseApplicationFromDisk() {
-        guard let window else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.applicationBundle]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.prompt = L10n.tr("common.add")
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let self, let url = panel.url?.standardizedFileURL else { return }
-            self.applyChosenApplicationURL(url)
+        )
+        let next = shortcuts.enumerated().map { $0.offset == index ? replacement : $0.element }
+        let result = onCommitShortcuts?(next) ?? .success(())
+        switch result {
+        case .success:
+            shortcuts = next
+        case .failure:
+            recorder?.setBinding(current.hotKey)
         }
     }
 
-    private func applyChosenApplicationURL(_ url: URL) {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else { return }
-        let rawName = url.deletingPathExtension().lastPathComponent
-        let display = FileManager.default.displayName(atPath: url.path)
-        let cleanName = display.hasSuffix(".app") ? String(display.dropLast(4)) : display
-        let current = drafts[index]
-        let updated = Draft(
-            id: current.id,
-            bundleIdentifier: Bundle(url: url)?.bundleIdentifier,
-            appPath: url.path,
-            appName: cleanName.isEmpty ? rawName : cleanName,
-            hotKey: current.hotKey,
-            isEnabled: current.isEnabled
-        )
-        replaceSelected(with: updated)
-        updateEditor()
-    }
-
-    @objc private func addShortcut() {
-        let existingPaths = Set(drafts.map(\.appPath))
-        let defaultApp = availableApps.first { !existingPaths.contains($0.url.standardizedFileURL.path) }
-            ?? availableApps.first
-        let path = defaultApp?.url.standardizedFileURL.path ?? ""
-        let bundleID = defaultApp.flatMap { Bundle(url: $0.url)?.bundleIdentifier }
-        let created = Draft(
-            id: "app.\(UUID().uuidString)",
-            bundleIdentifier: bundleID,
-            appPath: path,
-            appName: defaultApp?.name ?? "",
-            hotKey: nil,
-            isEnabled: true
-        )
-        drafts = drafts + [created]
-        tableView.reloadData()
-        selectRow(at: drafts.count - 1)
-    }
-
-    @objc private func removeShortcut() {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else { return }
-        drafts = drafts.enumerated().filter { $0.offset != index }.map(\.element)
-        tableView.reloadData()
-        selectRow(at: min(index, drafts.count - 1))
-    }
-
-    @objc private func toggleEnabled() {
-        let index = tableView.selectedRow
-        guard drafts.indices.contains(index) else { return }
-        let current = drafts[index]
-        replaceSelected(with: Draft(
+    @objc private func toggleShortcut(_ sender: NSSwitch) {
+        guard let id = sender.identifier?.rawValue,
+              let index = shortcuts.firstIndex(where: { $0.id == id }) else { return }
+        let current = shortcuts[index]
+        let nextEnabled = sender.state == .on
+        let replacement = AppShortcut(
             id: current.id,
             bundleIdentifier: current.bundleIdentifier,
             appPath: current.appPath,
             appName: current.appName,
             hotKey: current.hotKey,
-            isEnabled: enabledButton.state == .on
-        ))
-    }
-}
-
-extension AppShortcutsSettingsView: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { drafts.count }
-
-    func tableViewSelectionDidChange(_ notification: Notification) { updateEditor() }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard drafts.indices.contains(row), let id = tableColumn?.identifier.rawValue else { return nil }
-        let draft = drafts[row]
-        let text: String
-        switch id {
-        case "app":
-            text = draft.appName.isEmpty ? L10n.tr("app_shortcuts.choose_prompt") : draft.appName
-        case "hotkey":
-            text = draft.hotKey?.title ?? L10n.tr("hotkey.not_set")
-        case "path":
-            text = draft.appPath
-        case "enabled":
-            text = L10n.tr(draft.isEnabled ? "common.yes" : "common.no")
-        default:
-            return nil
+            isEnabled: nextEnabled
+        )
+        let next = shortcuts.enumerated().map { $0.offset == index ? replacement : $0.element }
+        let result = onCommitShortcuts?(next) ?? .success(())
+        switch result {
+        case .success:
+            shortcuts = next
+            rebuildRows()
+        case .failure:
+            sender.state = current.isEnabled ? .on : .off
         }
-        let cell = NSTextField(labelWithString: text)
-        cell.lineBreakMode = .byTruncatingMiddle
-        return cell
+    }
+
+    @objc private func deleteShortcut(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        let next = shortcuts.filter { $0.id != id }
+        let result = onCommitShortcuts?(next) ?? .success(())
+        if case .success = result {
+            shortcuts = next
+            rebuildRows()
+        }
     }
 }

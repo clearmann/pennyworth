@@ -63,8 +63,11 @@ final class NativePresentationTests: XCTestCase {
         model.endSession()
     }
 
-    @MainActor func testSettingsWindowSavesAndSurfacesErrorsWithoutRealPreferences() throws {
+    @MainActor func testSettingsWindowInstantAppliesAndSurfacesErrorsWithoutRealPreferences() throws {
         _ = NSApplication.shared
+        defer { AppLocalization.configure(language: .system) }
+        AppLocalization.configure(language: .simplifiedChinese)
+
         let name = "PresentationTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
@@ -79,24 +82,31 @@ final class NativePresentationTests: XCTestCase {
             if shouldFail { throw SettingsError.invalidDirectories }
             try store.save(value)
         }
+        controller.window?.animationBehavior = .none
         controller.showWindow(nil)
         defer { controller.close() }
-        var views = descendants(try XCTUnwrap(controller.window?.contentView))
-        let save = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "保存" })
-        save.performClick(nil)
-        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue == "设置已保存。" })
+
+        // Removing a directory from the File Search list card applies immediately.
         controller.selectPage("文件搜索")
-        views = descendants(try XCTUnwrap(controller.window?.contentView))
-        let remove = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "移除所选" })
+        var views = descendants(try XCTUnwrap(controller.window?.contentView))
+        let remove = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first {
+            $0.accessibilityLabel() == "移除目录 /tmp"
+        })
         remove.performClick(nil)
-        save.performClick(nil)
         XCTAssertEqual(store.settings.searchDirectories, [])
-        remove.performClick(nil)
-        shouldFail = true
-        save.performClick(nil)
-        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("绝对目录") })
+
+        // Applying an invalid change surfaces error in status banner and reverts UI state.
         controller.selectPage("通用")
+        shouldFail = true
         views = descendants(try XCTUnwrap(controller.window?.contentView))
+        let rememberSwitch = try XCTUnwrap(views.compactMap { $0 as? NSSwitch }.first {
+            $0.accessibilityLabel() == "记住应用使用频率"
+        })
+        rememberSwitch.state = .on
+        rememberSwitch.sendAction(rememberSwitch.action, to: rememberSwitch.target)
+        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("绝对目录") })
+        XCTAssertEqual(rememberSwitch.state, .off)
+
         let clear = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == "清除使用记录" })
         clear.performClick(nil)
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("已清除") })

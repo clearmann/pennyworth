@@ -1,18 +1,23 @@
 import AppKit
 
+/// Card-based list of built-in and custom keyword web searches with inline switches and sheet editing.
 @MainActor final class WebSearchSettingsView: NSView {
-    private let tableView = NSTableView()
-    private let keywordField = NSTextField()
-    private let titleField = NSTextField()
-    private let templateField = NSTextField()
-    private let addButton = NSButton(title: L10n.tr("web_search.add"), target: nil, action: nil)
-    private let removeButton = NSButton(title: L10n.tr("web_search.remove"), target: nil, action: nil)
-    private let enabledButton = NSButton(checkboxWithTitle: L10n.tr("common.enabled"), target: nil, action: nil)
+    private let listCard = SettingsCardView()
     private(set) var definitions: [WebSearchDefinition] = []
+    private var activeSheet: WebSearchEditorSheet?
+
+    var onCommitDefinitions: (([WebSearchDefinition]) -> Result<Void, Error>)?
 
     init() {
         super.init(frame: .zero)
-        configure()
+        translatesAutoresizingMaskIntoConstraints = false
+        addSubview(listCard)
+        NSLayoutConstraint.activate([
+            listCard.leadingAnchor.constraint(equalTo: leadingAnchor),
+            listCard.trailingAnchor.constraint(equalTo: trailingAnchor),
+            listCard.topAnchor.constraint(equalTo: topAnchor),
+            listCard.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
     @available(*, unavailable)
@@ -20,205 +25,136 @@ import AppKit
 
     func reload(_ definitions: [WebSearchDefinition]) {
         self.definitions = definitions
-        tableView.reloadData()
-        selectDefinition(at: definitions.isEmpty ? -1 : 0)
+        rebuildRows()
     }
 
-    private func configure() {
-        translatesAutoresizingMaskIntoConstraints = false
-        configureTable()
-        configureEditor()
-        addButton.target = self
-        addButton.action = #selector(addCustomSearch)
-        removeButton.target = self
-        removeButton.action = #selector(removeCustomSearch)
-        enabledButton.target = self
-        enabledButton.action = #selector(toggleEnabled)
-        enabledButton.setAccessibilityLabel(L10n.tr("web_search.enable_selected"))
-        let actions = NSStackView(views: [addButton, removeButton, enabledButton])
-        actions.spacing = 12
-        actions.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(actions)
-        let scroll = tableView.enclosingScrollView!
-        let editor = editorStack()
-        editor.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(editor)
-        NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 176),
-            editor.leadingAnchor.constraint(equalTo: leadingAnchor),
-            editor.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 14),
-            actions.leadingAnchor.constraint(equalTo: leadingAnchor),
-            actions.topAnchor.constraint(equalTo: editor.bottomAnchor, constant: 12),
-            actions.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-        for field in [keywordField, titleField, templateField] {
-            field.widthAnchor.constraint(equalTo: widthAnchor, constant: -104).isActive = true
-        }
+    @objc func presentAddSheet() {
+        presentSheet(editing: nil)
     }
 
-    private func configureTable() {
-        for (id, key, width) in [
-            ("keyword", "web_search.keyword", 70.0),
-            ("title", "web_search.display_name", 86.0),
-            ("template", "web_search.url", 220.0),
-            ("source", "web_search.source", 50.0),
-            ("enabled", "common.enabled", 44.0),
-        ] {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = L10n.tr(key)
-            column.width = width
-            tableView.addTableColumn(column)
-        }
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.rowHeight = 24
-        tableView.intercellSpacing = NSSize(width: 4, height: 2)
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        tableView.allowsMultipleSelection = false
-        tableView.setAccessibilityLabel(L10n.tr("web_search.list_accessibility"))
-        let scroll = NSScrollView()
-        scroll.documentView = tableView
-        scroll.hasVerticalScroller = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(scroll)
-    }
-
-    private func configureEditor() {
-        for (field, key) in [
-            (keywordField, "web_search.keyword_accessibility"),
-            (titleField, "web_search.title_accessibility"),
-            (templateField, "web_search.template_accessibility"),
-        ] {
-            field.delegate = self
-            field.setAccessibilityLabel(L10n.tr(key))
-            field.lineBreakMode = .byTruncatingMiddle
-        }
-        keywordField.placeholderString = L10n.tr("web_search.keyword_example")
-        titleField.placeholderString = L10n.tr("web_search.title_example")
-        templateField.placeholderString = "https://github.com/search?q={query}"
-    }
-
-    private func editorStack() -> NSStackView {
-        let rows = [keywordField, titleField, templateField].map { field -> NSStackView in
-            let key = field == keywordField ? "web_search.keyword" : field == titleField ? "web_search.display_name" : "web_search.url"
-            let label = NSTextField(labelWithString: L10n.tr(key))
-            label.widthAnchor.constraint(equalToConstant: 88).isActive = true
-            let row = NSStackView(views: [label, field])
-            row.spacing = 8
-            return row
-        }
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        return stack
-    }
-
-    private func selectDefinition(at index: Int) {
-        if definitions.indices.contains(index) {
-            tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-            tableView.scrollRowToVisible(index)
-        } else {
-            tableView.deselectAll(nil)
-        }
-        updateEditor()
-    }
-
-    private func updateEditor() {
-        guard definitions.indices.contains(tableView.selectedRow) else {
-            for field in [keywordField, titleField, templateField] {
-                field.stringValue = ""
-                field.isEditable = false
+    private func presentSheet(editing: WebSearchDefinition?) {
+        guard let window, activeSheet == nil else { return }
+        let sheet = WebSearchEditorSheet(
+            editing: editing,
+            onCommit: { [weak self] candidate in
+                guard let self else { return .success(()) }
+                let updated: [WebSearchDefinition]
+                if let editing, let idx = self.definitions.firstIndex(where: { $0.id == editing.id }) {
+                    updated = self.definitions.enumerated().map { $0.offset == idx ? candidate : $0.element }
+                } else {
+                    updated = self.definitions + [candidate]
+                }
+                let result = self.onCommitDefinitions?(updated) ?? .success(())
+                if case .success = result {
+                    self.definitions = updated
+                    self.rebuildRows()
+                }
+                return result
+            },
+            onDismiss: { [weak self] in
+                self?.activeSheet = nil
             }
-            removeButton.isEnabled = false
-            enabledButton.isEnabled = false
-            return
-        }
-        let definition = definitions[tableView.selectedRow]
-        keywordField.stringValue = definition.keyword
-        titleField.stringValue = definition.title
-        templateField.stringValue = definition.urlTemplate
-        for field in [keywordField, titleField, templateField] { field.isEditable = definition.isCustom }
-        removeButton.isEnabled = definition.isCustom
-        enabledButton.isEnabled = true
-        enabledButton.state = definition.isEnabled ? .on : .off
-    }
-
-    private func replaceSelected(with updated: WebSearchDefinition) {
-        let index = tableView.selectedRow
-        guard definitions.indices.contains(index) else { return }
-        definitions = definitions.enumerated().map { $0.offset == index ? updated : $0.element }
-        tableView.reloadData(forRowIndexes: IndexSet(integer: index),
-                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
-    }
-
-    @objc private func addCustomSearch() {
-        let custom = WebSearchDefinition(
-            id: "custom.\(UUID().uuidString)", keyword: "", title: "", urlTemplate: ""
         )
-        definitions = definitions + [custom]
-        tableView.reloadData()
-        selectDefinition(at: definitions.count - 1)
-        window?.makeFirstResponder(keywordField)
+        activeSheet = sheet
+        sheet.present(on: window)
     }
 
-    @objc private func toggleEnabled() {
-        guard definitions.indices.contains(tableView.selectedRow) else { return }
-        let current = definitions[tableView.selectedRow]
-        replaceSelected(with: WebSearchDefinition(
-            id: current.id, keyword: current.keyword, title: current.title, urlTemplate: current.urlTemplate,
-            isEnabled: enabledButton.state == .on, isCustom: current.isCustom
-        ))
+    private func rebuildRows() {
+        let rows = definitions.map { buildRow(for: $0) }
+        listCard.setRows(rows)
     }
 
-    @objc private func removeCustomSearch() {
-        let index = tableView.selectedRow
-        guard definitions.indices.contains(index), definitions[index].isCustom else { return }
-        definitions = definitions.enumerated().filter { $0.offset != index }.map(\.element)
-        tableView.reloadData()
-        selectDefinition(at: min(index, definitions.count - 1))
-    }
-}
+    private func buildRow(for definition: WebSearchDefinition) -> NSView {
+        let keywordBadge = SettingsBadgeLabel(
+            text: definition.keyword,
+            tone: definition.isCustom ? .accent : .neutral,
+            monospaced: true,
+            minWidth: 82
+        )
 
-extension WebSearchSettingsView: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { definitions.count }
+        let titleBadges: [NSView] = definition.isCustom
+            ? [SettingsBadgeLabel(text: L10n.tr("web_search.custom"), tone: .accent)]
+            : []
 
-    func tableViewSelectionDidChange(_ notification: Notification) { updateEditor() }
+        var trailing: [NSView] = []
+        if definition.isCustom {
+            let editButton = SettingsIconButton(
+                symbolName: "pencil",
+                accessibilityLabel: L10n.format("web_search.row.edit_accessibility", definition.title),
+                tooltip: L10n.tr("common.edit"),
+                target: self,
+                action: #selector(editCustomSearch(_:))
+            )
+            editButton.identifier = NSUserInterfaceItemIdentifier(definition.id)
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard definitions.indices.contains(row), let id = tableColumn?.identifier.rawValue else { return nil }
-        let definition = definitions[row]
-        let text: String
-        switch id {
-        case "keyword": text = definition.keyword
-        case "title": text = definition.title
-        case "template": text = definition.urlTemplate
-        case "source": text = L10n.tr(definition.isCustom ? "web_search.custom" : "web_search.built_in")
-        case "enabled": text = L10n.tr(definition.isEnabled ? "common.yes" : "common.no")
-        default: return nil
+            let deleteButton = SettingsIconButton(
+                symbolName: "trash",
+                accessibilityLabel: L10n.format("web_search.row.delete_accessibility", definition.title),
+                tooltip: L10n.tr("common.delete"),
+                isDestructive: true,
+                target: self,
+                action: #selector(deleteCustomSearch(_:))
+            )
+            deleteButton.identifier = NSUserInterfaceItemIdentifier(definition.id)
+            trailing.append(contentsOf: [editButton, deleteButton])
         }
-        let cell = NSTextField(labelWithString: text)
-        cell.lineBreakMode = .byTruncatingMiddle
-        return cell
-    }
-}
 
-extension WebSearchSettingsView: NSTextFieldDelegate {
-    func controlTextDidChange(_ notification: Notification) {
-        guard definitions.indices.contains(tableView.selectedRow) else { return }
-        let current = definitions[tableView.selectedRow]
-        guard current.isCustom else { return }
-        let updated = WebSearchDefinition(
+        let toggle = NSSwitch()
+        toggle.controlSize = .small
+        toggle.state = definition.isEnabled ? .on : .off
+        toggle.identifier = NSUserInterfaceItemIdentifier(definition.id)
+        toggle.target = self
+        toggle.action = #selector(toggleDefinition(_:))
+        toggle.setAccessibilityLabel(L10n.format("web_search.row.toggle_accessibility", definition.title))
+        trailing.append(toggle)
+
+        return SettingsRowView(
+            title: definition.title,
+            subtitle: definition.urlTemplate,
+            leadingView: keywordBadge,
+            trailingViews: trailing,
+            titleBadges: titleBadges,
+            dimmed: !definition.isEnabled
+        )
+    }
+
+    @objc private func editCustomSearch(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let target = definitions.first(where: { $0.id == id && $0.isCustom }) else { return }
+        presentSheet(editing: target)
+    }
+
+    @objc private func deleteCustomSearch(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let target = definitions.first(where: { $0.id == id && $0.isCustom }) else { return }
+        let updated = definitions.filter { $0.id != target.id }
+        let result = onCommitDefinitions?(updated) ?? .success(())
+        if case .success = result {
+            definitions = updated
+            rebuildRows()
+        }
+    }
+
+    @objc private func toggleDefinition(_ sender: NSSwitch) {
+        guard let id = sender.identifier?.rawValue,
+              let index = definitions.firstIndex(where: { $0.id == id }) else { return }
+        let current = definitions[index]
+        let replacement = WebSearchDefinition(
             id: current.id,
-            keyword: notification.object as? NSTextField === keywordField ? keywordField.stringValue : current.keyword,
-            title: notification.object as? NSTextField === titleField ? titleField.stringValue : current.title,
-            urlTemplate: notification.object as? NSTextField === templateField ? templateField.stringValue : current.urlTemplate,
-            isEnabled: current.isEnabled,
+            keyword: current.keyword,
+            title: current.title,
+            urlTemplate: current.urlTemplate,
+            isEnabled: sender.state == .on,
             isCustom: current.isCustom
         )
-        replaceSelected(with: updated)
+        let updated = definitions.enumerated().map { $0.offset == index ? replacement : $0.element }
+        let result = onCommitDefinitions?(updated) ?? .success(())
+        switch result {
+        case .success:
+            definitions = updated
+            rebuildRows()
+        case .failure:
+            sender.state = current.isEnabled ? .on : .off
+        }
     }
 }

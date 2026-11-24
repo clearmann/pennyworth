@@ -1,15 +1,34 @@
 import AppKit
 
-private final class SettingsPageHost: NSView {
-    override var isFlipped: Bool { true }
-}
-
 @MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
-    static var pageTitles: [String] {
-        ["general", "app_shortcuts", "default_results", "file_search", "web_search", "bookmarks", "calculator", "screenshots", "mouse", "image_upload"].map {
-            L10n.tr("settings.page.\($0)")
-        }
+    private struct SidebarGroup {
+        let titleKey: String
+        let items: [(key: String, symbol: String)]
     }
+
+    private static let sidebarGroups: [SidebarGroup] = [
+        SidebarGroup(titleKey: "settings.group.basics", items: [
+            ("general", "gearshape"),
+            ("app_shortcuts", "command"),
+        ]),
+        SidebarGroup(titleKey: "settings.group.search", items: [
+            ("default_results", "sparkle.magnifyingglass"),
+            ("file_search", "folder"),
+            ("web_search", "globe"),
+            ("bookmarks", "bookmark"),
+            ("calculator", "plus.forwardslash.minus"),
+        ]),
+        SidebarGroup(titleKey: "settings.group.tools", items: [
+            ("screenshots", "camera.viewfinder"),
+            ("mouse", "computermouse"),
+            ("image_upload", "icloud.and.arrow.up"),
+        ]),
+    ]
+
+    static var pageTitles: [String] {
+        sidebarGroups.flatMap(\.items).map { L10n.tr("settings.page.\($0.key)") }
+    }
+
     private let store: SettingsStore
     private let usage: UsageStore
     private let bookmarks: BookmarkStore?
@@ -23,34 +42,31 @@ private final class SettingsPageHost: NSView {
     private let onCopyUploadHistory: (UploadHistoryItem) -> Void
     private let onClearUploadHistory: () -> Void
     private let apply: (LauncherSettings) throws -> Void
-    private let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace)
-    private let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC)
-    private let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP)
-    private let appShortcutsSettings = AppShortcutsSettingsView()
-    private let mouseScrollSettings = MouseScrollSettingsView()
-    private let imageUploadSettings: ImageUploadSettingsView
-    private let engine = NSPopUpButton()
-    private let languagePopup = NSPopUpButton()
-    private let webSearchSettings = WebSearchSettingsView()
-    private let fallback = NSPopUpButton()
-    private let remember = NSButton(checkboxWithTitle: L10n.tr("settings.remember_usage"), target: nil, action: nil)
-    private let directories = NSPopUpButton()
-    private let feedback = NSTextField(wrappingLabelWithString: "")
-    private let pageHost = SettingsPageHost()
-    private var pages: [String: NSStackView] = [:]
-    private var navigation: [NSButton] = []
+
+    private var activeSettings: LauncherSettings
+    let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false)
+    let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC, allowsClearing: false)
+    let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP, allowsClearing: true)
+    let languagePopup = NSPopUpButton()
+    let rememberSwitch = NSSwitch()
+    let enginePopup = NSPopUpButton()
+    let fallbackPopup = NSPopUpButton()
+    let defaultBookmarksSwitch = NSSwitch()
+
+    let appShortcutsSettings = AppShortcutsSettingsView()
+    let fileSearchSettings = FileSearchSettingsView()
+    let webSearchSettings = WebSearchSettingsView()
+    let bookmarksSettings = BookmarksSettingsView()
+    let mouseScrollSettings = MouseScrollSettingsView()
+    let imageUploadSettings: ImageUploadSettingsView
+
+    private let statusBanner = SettingsStatusBanner()
+    private let scrollView = NSScrollView()
+    let pageHost = SettingsFlippedView()
+    var pages: [String: NSStackView] = [:]
+    private var navigation: [SettingsSidebarItemView] = []
     private var pageBottom: NSLayoutConstraint?
-    private var paths: [String] = []
     private(set) var selectedPageTitle = L10n.tr("settings.page.general")
-    private let bookmarkEnabled = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.enabled"), target: nil, action: nil)
-    private let defaultBookmarks = NSButton(checkboxWithTitle: L10n.tr("settings.page.bookmarks"), target: nil, action: nil)
-    private let bookmarkInDefault = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.include_default"), target: nil, action: nil)
-    private let matchTitle = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_title"), target: nil, action: nil)
-    private let matchURL = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_url"), target: nil, action: nil)
-    private let matchFolders = NSButton(checkboxWithTitle: L10n.tr("settings.bookmarks.match_folders"), target: nil, action: nil)
-    private let profileList = NSStackView()
-    private let bookmarkStatus = NSTextField(wrappingLabelWithString: L10n.tr("settings.bookmarks.not_imported"))
-    private var bookmarkButtons: [NSButton] = []
     private var bookmarkBusy = false
 
     init(store: SettingsStore, usage: UsageStore, bookmarks: BookmarkStore? = nil,
@@ -79,10 +95,18 @@ private final class SettingsPageHost: NSView {
         self.onClearUploadHistory = onClearUploadHistory
         self.imageUploadSettings = ImageUploadSettingsView(secretStore: imageUploadSecretStore)
         self.apply = apply
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        self.activeSettings = store.settings
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: SettingsStyle.windowDefaultSize),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
         window.title = L10n.tr("settings.window_title")
-        window.minSize = NSSize(width: 780, height: 580)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.minSize = SettingsStyle.windowMinSize
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
@@ -94,6 +118,10 @@ private final class SettingsPageHost: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func windowWillClose(_ notification: Notification) {
+        if let sheet = window?.attachedSheet {
+            window?.endSheet(sheet)
+            sheet.orderOut(nil)
+        }
         window?.makeFirstResponder(nil)
         setHotKeySuspended(false)
     }
@@ -113,27 +141,175 @@ private final class SettingsPageHost: NSView {
 
     override func showWindow(_ sender: Any?) {
         let value = store.settings
+        activeSettings = value
         hotKeyRecorder.setBinding(value.hotKey)
         clipboardHotKeyRecorder.setBinding(value.clipboardHotKey)
         screenshotHotKeyRecorder.setBinding(value.screenshotHotKey)
+        languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
+        rememberSwitch.state = value.rememberUsage ? .on : .off
+        enginePopup.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
+        fallbackPopup.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
+
         appShortcutsSettings.reload(value.appShortcuts, availableApps: applicationsProvider())
+        fileSearchSettings.reload(value.searchDirectories)
+        webSearchSettings.reload(value.webSearches)
         let mouseState = mousePermissionProvider()
         mouseScrollSettings.reload(value.mouseScroll, status: mouseState.0, isTrusted: mouseState.1)
         imageUploadSettings.reload(value.imageUpload, history: uploadHistoryProvider())
-        engine.selectItem(at: SearchEngine.allCases.firstIndex(of: value.searchEngine) ?? 0)
-        languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: value.language) ?? 0)
-        webSearchSettings.reload(value.webSearches)
-        fallback.selectItem(at: value.fallbackOnlyWhenNoResults ? 1 : 0)
-        remember.state = value.rememberUsage ? .on : .off
-        paths = value.searchDirectories
-        reloadDirectories()
-        feedback.stringValue = store.warning ?? L10n.tr("settings.save_help")
+
+        if let warning = store.warning {
+            statusBanner.show(warning, level: .warning)
+        } else {
+            statusBanner.clear()
+        }
         super.showWindow(sender)
         reloadBookmarks()
     }
 
+    func selectPage(_ title: String) {
+        guard let selected = pages[title] else { return }
+        selectedPageTitle = title
+        pageBottom?.isActive = false
+        for (name, page) in pages {
+            page.isHidden = name != title
+        }
+        for button in navigation {
+            button.state = button.title == title ? .on : .off
+        }
+        pageBottom = pageHost.bottomAnchor.constraint(equalTo: selected.bottomAnchor, constant: SettingsStyle.contentBottomPadding)
+        pageBottom?.isActive = true
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    // MARK: - Shell Configuration
+
     private func configure() {
         guard let content = window?.contentView else { return }
+        wireControlCallbacks()
+
+        let sidebar = buildSidebar()
+        let verticalDivider = SettingsHairlineView(vertical: true)
+        let canvas = SettingsCanvasView()
+        canvas.translatesAutoresizingMaskIntoConstraints = false
+
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        pageHost.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = pageHost
+
+        let bannerHost = NSView()
+        bannerHost.translatesAutoresizingMaskIntoConstraints = false
+        bannerHost.addSubview(statusBanner)
+        NSLayoutConstraint.activate([
+            statusBanner.leadingAnchor.constraint(equalTo: bannerHost.leadingAnchor, constant: SettingsStyle.contentHorizontalPadding),
+            statusBanner.trailingAnchor.constraint(equalTo: bannerHost.trailingAnchor, constant: -SettingsStyle.contentHorizontalPadding),
+            statusBanner.topAnchor.constraint(equalTo: bannerHost.topAnchor, constant: 26),
+            statusBanner.bottomAnchor.constraint(equalTo: bannerHost.bottomAnchor),
+        ])
+
+        let rightStack = NSStackView(views: [bannerHost, scrollView])
+        rightStack.orientation = .vertical
+        rightStack.alignment = .leading
+        rightStack.spacing = 0
+        rightStack.translatesAutoresizingMaskIntoConstraints = false
+        canvas.addSubview(rightStack)
+
+        content.addSubview(sidebar)
+        content.addSubview(verticalDivider)
+        content.addSubview(canvas)
+
+        NSLayoutConstraint.activate([
+            sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sidebar.topAnchor.constraint(equalTo: content.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            sidebar.widthAnchor.constraint(equalToConstant: SettingsStyle.sidebarWidth),
+
+            verticalDivider.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            verticalDivider.topAnchor.constraint(equalTo: content.topAnchor),
+            verticalDivider.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            canvas.leadingAnchor.constraint(equalTo: verticalDivider.trailingAnchor),
+            canvas.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            canvas.topAnchor.constraint(equalTo: content.topAnchor),
+            canvas.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            rightStack.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            rightStack.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            rightStack.topAnchor.constraint(equalTo: canvas.topAnchor),
+            rightStack.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            bannerHost.widthAnchor.constraint(equalTo: rightStack.widthAnchor),
+            scrollView.widthAnchor.constraint(equalTo: rightStack.widthAnchor),
+            pageHost.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+        ])
+
+        bannerHost.isHidden = true
+        statusBanner.onVisibilityChanged = { [weak bannerHost] visible in
+            bannerHost?.isHidden = !visible
+        }
+
+        buildPages()
+        selectPage(L10n.tr("settings.page.general"))
+    }
+
+    private func buildSidebar() -> NSView {
+        let sidebar = NSVisualEffectView()
+        sidebar.material = .sidebar
+        sidebar.blendingMode = .behindWindow
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+
+        let navStack = NSStackView()
+        navStack.orientation = .vertical
+        navStack.alignment = .leading
+        navStack.spacing = 2
+        navStack.translatesAutoresizingMaskIntoConstraints = false
+
+        for (groupIndex, group) in Self.sidebarGroups.enumerated() {
+            let groupHeader = NSTextField(labelWithString: L10n.tr(group.titleKey))
+            groupHeader.font = SettingsStyle.sidebarGroupFont
+            groupHeader.textColor = SettingsStyle.sidebarGroupText
+            groupHeader.translatesAutoresizingMaskIntoConstraints = false
+
+            let headerWrapper = NSView()
+            headerWrapper.translatesAutoresizingMaskIntoConstraints = false
+            headerWrapper.addSubview(groupHeader)
+            NSLayoutConstraint.activate([
+                groupHeader.leadingAnchor.constraint(equalTo: headerWrapper.leadingAnchor, constant: 10),
+                groupHeader.trailingAnchor.constraint(equalTo: headerWrapper.trailingAnchor, constant: -10),
+                groupHeader.topAnchor.constraint(equalTo: headerWrapper.topAnchor, constant: groupIndex == 0 ? 0 : 12),
+                groupHeader.bottomAnchor.constraint(equalTo: headerWrapper.bottomAnchor, constant: -4),
+            ])
+            navStack.addArrangedSubview(headerWrapper)
+            headerWrapper.widthAnchor.constraint(equalTo: navStack.widthAnchor).isActive = true
+
+            for item in group.items {
+                let title = L10n.tr("settings.page.\(item.key)")
+                let button = SettingsSidebarItemView(
+                    title: title,
+                    symbolName: item.symbol,
+                    target: self,
+                    action: #selector(navigate(_:))
+                )
+                navigation.append(button)
+                navStack.addArrangedSubview(button)
+                button.widthAnchor.constraint(equalTo: navStack.widthAnchor).isActive = true
+            }
+        }
+
+        sidebar.addSubview(navStack)
+        NSLayoutConstraint.activate([
+            navStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 12),
+            navStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -12),
+            navStack.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: SettingsStyle.sidebarTopInset),
+        ])
+        return sidebar
+    }
+
+    private func wireControlCallbacks() {
         hotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.hotkey"))
         clipboardHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.clipboard_hotkey"))
         screenshotHotKeyRecorder.setAccessibilityLabel(L10n.tr("settings.screenshot_hotkey"))
@@ -142,13 +318,90 @@ private final class SettingsPageHost: NSView {
         screenshotHotKeyRecorder.onRecordingStateChanged = setHotKeySuspended
         appShortcutsSettings.onRecordingStateChanged = setHotKeySuspended
         imageUploadSettings.onRecordingStateChanged = setHotKeySuspended
-        imageUploadSettings.onCopyHistoryItem = { [weak self] item in
-            self?.onCopyUploadHistory(item)
+
+        hotKeyRecorder.onChange = { [weak self] binding in
+            guard let self, let binding else { return }
+            let previous = self.activeSettings.hotKey
+            let result = self.commitSettings({ $0.updating(hotKey: binding) })
+            if case .failure = result { self.hotKeyRecorder.setBinding(previous) }
         }
-        imageUploadSettings.onClearHistory = { [weak self] in
-            self?.onClearUploadHistory()
-            self?.reloadImageUploadHistory()
+        clipboardHotKeyRecorder.onChange = { [weak self] binding in
+            guard let self, let binding else { return }
+            let previous = self.activeSettings.clipboardHotKey
+            let result = self.commitSettings({ $0.updating(clipboardHotKey: binding) })
+            if case .failure = result { self.clipboardHotKeyRecorder.setBinding(previous) }
         }
+        screenshotHotKeyRecorder.onChange = { [weak self] binding in
+            guard let self else { return }
+            let previous = self.activeSettings.screenshotHotKey
+            let result = self.commitSettings({ $0.updating(screenshotHotKey: .some(binding)) })
+            if case .failure = result { self.screenshotHotKeyRecorder.setBinding(previous) }
+        }
+
+        languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
+        languagePopup.target = self
+        languagePopup.action = #selector(languageChanged)
+        languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
+        languagePopup.widthAnchor.constraint(equalToConstant: 150).isActive = true
+
+        rememberSwitch.controlSize = .small
+        rememberSwitch.target = self
+        rememberSwitch.action = #selector(rememberUsageChanged)
+        rememberSwitch.setAccessibilityLabel(L10n.tr("settings.remember_usage"))
+
+        enginePopup.addItems(withTitles: SearchEngine.allCases.map(\.title))
+        enginePopup.target = self
+        enginePopup.action = #selector(searchEngineChanged)
+        enginePopup.setAccessibilityLabel(L10n.tr("settings.search_engine"))
+        enginePopup.widthAnchor.constraint(equalToConstant: 150).isActive = true
+
+        fallbackPopup.addItems(withTitles: [L10n.tr("settings.fallback.always"), L10n.tr("settings.fallback.no_results")])
+        fallbackPopup.target = self
+        fallbackPopup.action = #selector(fallbackChanged)
+        fallbackPopup.setAccessibilityLabel(L10n.tr("settings.web_fallback"))
+        fallbackPopup.widthAnchor.constraint(equalToConstant: 210).isActive = true
+
+        defaultBookmarksSwitch.controlSize = .small
+        defaultBookmarksSwitch.target = self
+        defaultBookmarksSwitch.action = #selector(defaultBookmarksToggled)
+        defaultBookmarksSwitch.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
+
+        appShortcutsSettings.onCommitShortcuts = { [weak self] updated in
+            guard let self else { return .success(()) }
+            let isSheetActive = self.window?.attachedSheet != nil
+            return self.commitSettings(
+                { $0.updating(appShortcuts: updated) },
+                showInlineError: !isSheetActive
+            )
+        }
+
+        fileSearchSettings.onAddRequested = { [weak self] in
+            self?.addDirectory()
+        }
+        fileSearchSettings.onRemoveDirectory = { [weak self] path in
+            self?.removeDirectory(path)
+        }
+
+        webSearchSettings.onCommitDefinitions = { [weak self] updated in
+            guard let self else { return .success(()) }
+            let isSheetActive = self.window?.attachedSheet != nil
+            return self.commitSettings(
+                { $0.updating(webSearches: updated) },
+                showInlineError: !isSheetActive
+            )
+        }
+
+        bookmarksSettings.onPreferenceChanged = { [weak self] prefs in
+            self?.saveBookmarkPreferences(prefs)
+        }
+        bookmarksSettings.onProfileToggled = { [weak self] id, selected in
+            self?.toggleBookmarkProfile(id: id, selected: selected)
+        }
+        bookmarksSettings.onDetectProfiles = { [weak self] in self?.detectProfiles() }
+        bookmarksSettings.onChooseDirectory = { [weak self] in self?.chooseChromeDirectory() }
+        bookmarksSettings.onRefreshBookmarks = { [weak self] in self?.refreshBookmarks() }
+        bookmarksSettings.onClearBookmarks = { [weak self] in self?.clearBookmarks() }
+
         mouseScrollSettings.onRequestPermission = { [weak self] in
             self?.onRequestMousePermission()
             self?.reloadMouseStatus()
@@ -157,7 +410,7 @@ private final class SettingsPageHost: NSView {
             guard let self else { return false }
             let opened = self.onOpenMouseAccessibilitySettings()
             if !opened {
-                self.feedback.stringValue = L10n.tr("mouse.permission.settings_failed")
+                self.statusBanner.show(L10n.tr("mouse.permission.settings_failed"), level: .error)
             }
             return opened
         }
@@ -165,290 +418,166 @@ private final class SettingsPageHost: NSView {
             self?.onRefreshMousePermission()
             self?.reloadMouseStatus()
         }
-        engine.addItems(withTitles: SearchEngine.allCases.map(\.title))
-        languagePopup.addItems(withTitles: AppLanguage.allCases.map(\.title))
-        languagePopup.setAccessibilityLabel(L10n.tr("settings.language"))
-        fallback.addItems(withTitles: [L10n.tr("settings.fallback.always"), L10n.tr("settings.fallback.no_results")])
-        engine.setAccessibilityLabel(L10n.tr("settings.search_engine"))
-        fallback.setAccessibilityLabel(L10n.tr("settings.web_fallback"))
-        directories.setAccessibilityLabel(L10n.tr("settings.search_directories"))
-        directories.widthAnchor.constraint(equalToConstant: 320).isActive = true
-        feedback.font = .systemFont(ofSize: 12)
-        feedback.textColor = .secondaryLabelColor
-
-        let sidebar = NSVisualEffectView()
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-        let nav = NSStackView()
-        nav.orientation = .vertical
-        nav.alignment = .leading
-        nav.spacing = 6
-        nav.translatesAutoresizingMaskIntoConstraints = false
-        let symbols = ["gearshape", "command", "list.bullet", "folder", "globe", "bookmark", "plus.forwardslash.minus", "camera.viewfinder", "computermouse", "icloud.and.arrow.up"]
-        for (index, title) in Self.pageTitles.enumerated() {
-            let button = NSButton(title: title, target: self, action: #selector(navigate(_:)))
-            button.setButtonType(.pushOnPushOff)
-            button.bezelStyle = .recessed
-            button.alignment = .left
-            button.image = NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)
-            button.imagePosition = .imageLeading
-            button.setAccessibilityLabel(L10n.format("settings.page_accessibility", title))
-            button.widthAnchor.constraint(equalToConstant: 156).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
-            navigation.append(button)
-            nav.addArrangedSubview(button)
+        mouseScrollSettings.onCommitSettings = { [weak self] updated in
+            guard let self else { return .success(()) }
+            let result = self.commitSettings({ $0.updating(mouseScroll: updated) })
+            if case .success = result { self.reloadMouseStatus() }
+            return result
         }
-        sidebar.addSubview(nav)
-        content.addSubview(sidebar)
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        pageHost.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = pageHost
-        content.addSubview(scroll)
-        let save = NSButton(title: L10n.tr("settings.save"), target: self, action: #selector(saveSettings))
-        save.keyEquivalent = "\r"
-        let footer = NSStackView(views: [feedback, save])
-        footer.spacing = 16
-        footer.translatesAutoresizingMaskIntoConstraints = false
-        feedback.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        content.addSubview(footer)
-        NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            sidebar.topAnchor.constraint(equalTo: content.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: 184),
-            nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
-            nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 22),
-            scroll.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: content.topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -16),
-            pageHost.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            footer.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: 28),
-            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -18),
-        ])
-        buildPages()
-        selectPage(L10n.tr("settings.page.general"))
+
+        imageUploadSettings.onCommitSettings = { [weak self] updated, afterApply in
+            guard let self else { return .success(()) }
+            let isSheetActive = self.window?.attachedSheet != nil
+            return self.commitSettings(
+                { $0.updating(imageUpload: updated) },
+                afterApply: afterApply,
+                showInlineError: !isSheetActive
+            )
+        }
+        imageUploadSettings.onCopyHistoryItem = { [weak self] item in
+            self?.onCopyUploadHistory(item)
+            self?.statusBanner.show(L10n.tr("image_upload.history.copied_feedback"), level: .success)
+        }
+        imageUploadSettings.onClearHistory = { [weak self] in
+            self?.onClearUploadHistory()
+            self?.reloadImageUploadHistory()
+        }
     }
 
-    private func buildPages() {
-        addPage(L10n.tr("settings.page.general"), description: L10n.tr("settings.general.description"), controls: [
-            row(L10n.tr("settings.language"), languagePopup),
-            row(L10n.tr("settings.hotkey"), hotKeyRecorder),
-            row(L10n.tr("settings.clipboard_hotkey"), clipboardHotKeyRecorder),
-            note(L10n.tr("settings.general.right_command_note")),
-            remember,
-            NSButton(title: L10n.tr("settings.clear_usage"), target: self, action: #selector(clearHistory)),
-        ])
-        addPage(L10n.tr("settings.page.app_shortcuts"), description: L10n.tr("settings.app_shortcuts.description"), controls: [
-            appShortcutsSettings,
-            note(L10n.tr("settings.app_shortcuts.note")),
-        ])
-        if let page = pages[L10n.tr("settings.page.app_shortcuts")] {
-            appShortcutsSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
+    // MARK: - Instant-Apply Commit Pipeline
+
+    @discardableResult
+    private func commitSettings(
+        _ transform: (LauncherSettings) -> LauncherSettings,
+        afterApply: (() throws -> Void)? = nil,
+        showInlineError: Bool = true
+    ) -> Result<Void, Error> {
+        let next = transform(activeSettings)
+        let languageChanged = next.language != activeSettings.language
+        do {
+            try apply(next)
+            try afterApply?()
+            activeSettings = next
+            if languageChanged {
+                statusBanner.show(L10n.tr("settings.restart_required"), level: .warning)
+            } else {
+                statusBanner.clear()
+            }
+            return .success(())
+        } catch {
+            if showInlineError {
+                statusBanner.show(error.localizedDescription, level: .error)
+            }
+            return .failure(error)
         }
-        defaultBookmarks.target = self
-        defaultBookmarks.action = #selector(bookmarkPreferenceChanged(_:))
-        defaultBookmarks.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
-        bookmarkInDefault.setAccessibilityLabel(L10n.tr("settings.bookmarks.default_accessibility"))
-        let bookmarkLink = NSButton(title: L10n.tr("settings.bookmarks.configure"), target: self, action: #selector(openBookmarks))
-        addPage(L10n.tr("settings.page.default_results"), description: L10n.tr("settings.default_results.description"), controls: [
-            note(L10n.tr("settings.default_results.note")),
-            NSStackView(views: [defaultBookmarks, bookmarkLink]),
-            note(L10n.tr("settings.default_results.bookmarks_note")),
-            row(L10n.tr("settings.web_fallback"), fallback),
-        ])
-        addPage(L10n.tr("settings.page.file_search"), description: L10n.tr("settings.file_search.description"), controls: [
-            row(L10n.tr("settings.search_directories"), directories),
-            NSStackView(views: [NSButton(title: L10n.tr("settings.add_directory"), target: self, action: #selector(addDirectory)),
-                               NSButton(title: L10n.tr("settings.remove_directory"), target: self, action: #selector(removeDirectory))]),
-            note(L10n.tr("settings.file_search.spotlight_note")),
-            note(L10n.tr("settings.file_search.commands_note")),
-        ])
-        addPage(L10n.tr("settings.page.web_search"), description: L10n.tr("settings.web_search.description"), controls: [
-            row(L10n.tr("settings.search_engine"), engine),
-            webSearchSettings,
-            note(L10n.tr("settings.web_search.note")),
-        ])
-        if let page = pages[L10n.tr("settings.page.web_search")] {
-            webSearchSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        }
-        for button in [bookmarkEnabled, bookmarkInDefault, matchTitle, matchURL, matchFolders] {
-            button.target = self
-            button.action = #selector(bookmarkPreferenceChanged(_:))
-        }
-        profileList.orientation = .vertical
-        profileList.alignment = .leading
-        profileList.spacing = 8
-        let detect = NSButton(title: L10n.tr("settings.bookmarks.detect"), target: self, action: #selector(detectProfiles))
-        let choose = NSButton(title: L10n.tr("settings.bookmarks.choose_directory"), target: self, action: #selector(chooseChromeDirectory))
-        let refresh = NSButton(title: L10n.tr("settings.bookmarks.import_refresh"), target: self, action: #selector(refreshBookmarks))
-        let clear = NSButton(title: L10n.tr("settings.bookmarks.clear"), target: self, action: #selector(clearBookmarks))
-        bookmarkButtons = [detect, choose, refresh, clear]
-        bookmarkStatus.font = .systemFont(ofSize: 12)
-        bookmarkStatus.textColor = .secondaryLabelColor
-        addPage(L10n.tr("settings.page.bookmarks"), description: L10n.tr("settings.bookmarks.description"), controls: [
-            bookmarkEnabled, row(L10n.tr("settings.bookmarks.profiles"), profileList),
-            NSStackView(views: [detect, choose]), refresh, bookmarkStatus,
-            bookmarkInDefault, row(L10n.tr("settings.bookmarks.keyword"), NSTextField(labelWithString: "bm")),
-            row(L10n.tr("settings.bookmarks.match_scope"), NSStackView(views: [matchTitle, matchURL, matchFolders])),
-            row(L10n.tr("settings.bookmarks.open_with"), NSTextField(labelWithString: L10n.tr("settings.bookmarks.default_browser"))),
-            clear, note(L10n.tr("settings.bookmarks.note")),
-        ])
-        addPage(L10n.tr("settings.page.calculator"), description: L10n.tr("settings.calculator.description"), controls: [
-            note(L10n.tr("settings.calculator.syntax_note")),
-            note(L10n.tr("settings.calculator.example_note")),
-        ])
-        addPage(L10n.tr("settings.page.screenshots"), description: L10n.tr("settings.screenshots.description"), controls: [
-            row(L10n.tr("settings.screenshot_hotkey"), screenshotHotKeyRecorder),
-            note(L10n.tr("settings.screenshot.commands_note")),
-        ])
-        addPage(L10n.tr("settings.page.mouse"), description: L10n.tr("settings.mouse.description"), controls: [
-            mouseScrollSettings,
-            note(L10n.tr("settings.mouse.note")),
-        ])
-        if let page = pages[L10n.tr("settings.page.mouse")] {
-            mouseScrollSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        }
-        addPage(L10n.tr("settings.page.image_upload"), description: L10n.tr("settings.image_upload.description"), controls: [
-            imageUploadSettings,
-            note(L10n.tr("settings.image_upload.note")),
-        ])
-        if let page = pages[L10n.tr("settings.page.image_upload")] {
-            imageUploadSettings.widthAnchor.constraint(equalTo: page.widthAnchor).isActive = true
-        }
-        // Bookmark state is loaded after the window is first presented.
     }
 
-    private func addPage(_ title: String, description: String, controls: [NSView]) {
-        let heading = NSTextField(labelWithString: title)
-        heading.font = .systemFont(ofSize: 25, weight: .semibold)
-        let separator = NSBox()
-        separator.boxType = .separator
-        let stack = NSStackView(views: [heading, note(description), separator] + controls)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 18
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        pageHost.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: pageHost.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: pageHost.trailingAnchor, constant: -28),
-            stack.topAnchor.constraint(equalTo: pageHost.topAnchor, constant: 28),
-            separator.widthAnchor.constraint(equalTo: stack.widthAnchor),
-        ])
-        for view in stack.arrangedSubviews where view is NSTextField {
-            view.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
-        }
-        if title == L10n.tr("settings.page.bookmarks") {
-            bookmarkStatus.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            profileList.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -128).isActive = true
-        }
-        pages[title] = stack
-    }
-
-    func selectPage(_ title: String) {
-        guard let selected = pages[title] else { return }
-        selectedPageTitle = title
-        pageBottom?.isActive = false
-        for (name, page) in pages { page.isHidden = name != title }
-        for button in navigation { button.state = button.title == title ? .on : .off }
-        pageBottom = pageHost.bottomAnchor.constraint(equalTo: selected.bottomAnchor, constant: 28)
-        pageBottom?.isActive = true
-        selected.scrollToVisible(selected.bounds)
-    }
+    // MARK: - Actions
 
     @objc private func navigate(_ sender: NSButton) { selectPage(sender.title) }
-    @objc private func openBookmarks() { selectPage(L10n.tr("settings.page.bookmarks")) }
+    @objc func openBookmarks() { selectPage(L10n.tr("settings.page.bookmarks")) }
 
-    private func row(_ title: String, _ control: NSView) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.widthAnchor.constraint(equalToConstant: 116).isActive = true
-        let stack = NSStackView(views: [label, control])
-        stack.alignment = .top
-        stack.spacing = 12
-        return stack
+    @objc private func languageChanged() {
+        let index = max(0, min(AppLanguage.allCases.count - 1, languagePopup.indexOfSelectedItem))
+        let previous = activeSettings.language
+        let nextLanguage = AppLanguage.allCases[index]
+        let result = commitSettings({ $0.updating(language: nextLanguage) })
+        if case .failure = result {
+            languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: previous) ?? 0)
+        }
     }
 
-    private func note(_ text: String) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = .systemFont(ofSize: 12)
-        label.textColor = .secondaryLabelColor
-        return label
+    @objc private func rememberUsageChanged() {
+        let previous = activeSettings.rememberUsage
+        let result = commitSettings({ $0.updating(rememberUsage: rememberSwitch.state == .on) })
+        if case .failure = result {
+            rememberSwitch.state = previous ? .on : .off
+        }
     }
 
-    private func reloadDirectories() {
-        directories.removeAllItems()
-        directories.addItems(withTitles: paths.isEmpty ? [L10n.tr("settings.no_directories")] : paths)
+    @objc private func searchEngineChanged() {
+        let index = max(0, min(SearchEngine.allCases.count - 1, enginePopup.indexOfSelectedItem))
+        let previous = activeSettings.searchEngine
+        let nextEngine = SearchEngine.allCases[index]
+        let result = commitSettings({ $0.updating(searchEngine: nextEngine) })
+        if case .failure = result {
+            enginePopup.selectItem(at: SearchEngine.allCases.firstIndex(of: previous) ?? 0)
+        }
     }
+
+    @objc private func fallbackChanged() {
+        let previous = activeSettings.fallbackOnlyWhenNoResults
+        let nextFallback = fallbackPopup.indexOfSelectedItem == 1
+        let result = commitSettings({ $0.updating(fallbackOnlyWhenNoResults: nextFallback) })
+        if case .failure = result {
+            fallbackPopup.selectItem(at: previous ? 1 : 0)
+        }
+    }
+
+    @objc func clearHistory() {
+        usage.clear()
+        statusBanner.show(L10n.tr("settings.usage_cleared"), level: .success)
+    }
+
+    @objc func addDirectory() {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = L10n.tr("common.add")
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self else { return }
+            let added = panel.urls.map { $0.standardizedFileURL.path }
+            let updated = Array(Set(self.activeSettings.searchDirectories + added)).sorted()
+            if case .success = self.commitSettings({ $0.updating(searchDirectories: updated) }) {
+                self.fileSearchSettings.reload(updated)
+            }
+        }
+    }
+
+    private func removeDirectory(_ path: String) {
+        let updated = activeSettings.searchDirectories.filter { $0 != path }
+        if case .success = commitSettings({ $0.updating(searchDirectories: updated) }) {
+            fileSearchSettings.reload(updated)
+        }
+    }
+
+    // MARK: - Bookmarks
 
     private func reloadBookmarks() {
         let prefs = bookmarks?.preferences ?? BookmarkPreferences()
-        bookmarkEnabled.state = prefs.enabled ? .on : .off
-        defaultBookmarks.state = prefs.includeInDefaultResults ? .on : .off
-        bookmarkInDefault.state = defaultBookmarks.state
-        matchTitle.state = prefs.matchTitle ? .on : .off
-        matchURL.state = prefs.matchURL ? .on : .off
-        matchFolders.state = prefs.matchFolders ? .on : .off
-        for control in [bookmarkEnabled, defaultBookmarks, bookmarkInDefault, matchTitle, matchURL, matchFolders] + bookmarkButtons {
-            control.isEnabled = bookmarks != nil && !bookmarkBusy
-        }
-        for view in profileList.arrangedSubviews { profileList.removeArrangedSubview(view); view.removeFromSuperview() }
-        guard let bookmarks else {
-            profileList.addArrangedSubview(note(L10n.tr("settings.bookmarks.unavailable")))
-            return
-        }
-        if bookmarks.profiles.isEmpty { profileList.addArrangedSubview(note(L10n.tr("settings.bookmarks.not_detected"))) }
-        for profile in bookmarks.profiles {
-            let count = bookmarks.snapshots[profile.id]?.entries.count
-            let status = count.map { L10n.format("settings.bookmarks.imported_count", $0) } ?? L10n.tr("settings.bookmarks.profile_not_imported")
-            let button = NSButton(checkboxWithTitle: "\(profile.name) · \(status)",
-                                  target: self, action: #selector(profileChanged(_:)))
-            button.identifier = NSUserInterfaceItemIdentifier(profile.id)
-            button.toolTip = "\(profile.name)\n\(profile.id)"
-            button.cell?.lineBreakMode = .byTruncatingMiddle
-            button.state = profile.selected ? .on : .off
-            button.isEnabled = !bookmarkBusy
-            profileList.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalTo: profileList.widthAnchor).isActive = true
-        }
-        let snapshots = bookmarks.snapshots.values
-        if bookmarkBusy {
-            bookmarkStatus.stringValue = L10n.tr("settings.bookmarks.reading")
-        } else if let date = snapshots.map(\.importedAt).max() {
-            let imported = snapshots.reduce(0) { $0 + $1.entries.count }
-            let skipped = snapshots.reduce(0) { $0 + $1.skippedCount }
-            bookmarkStatus.stringValue = L10n.format("settings.bookmarks.import_status",
-                                                      date.formatted(date: .abbreviated, time: .shortened), imported, skipped)
-        } else {
-            bookmarkStatus.stringValue = L10n.tr("settings.bookmarks.import_help")
-        }
-        if let warning = bookmarks.warning { bookmarkStatus.stringValue += "\n\(warning)" }
+        defaultBookmarksSwitch.state = prefs.includeInDefaultResults ? .on : .off
+        defaultBookmarksSwitch.isEnabled = bookmarks != nil && !bookmarkBusy
+        bookmarksSettings.reload(bookmarks: bookmarks, busy: bookmarkBusy)
     }
 
-    @objc private func bookmarkPreferenceChanged(_ sender: NSButton) {
+    @objc private func defaultBookmarksToggled() {
         guard let bookmarks else { return }
         var prefs = bookmarks.preferences
-        if sender === defaultBookmarks || sender === bookmarkInDefault { prefs.includeInDefaultResults = sender.state == .on }
-        else if sender === bookmarkEnabled { prefs.enabled = sender.state == .on }
-        else if sender === matchTitle { prefs.matchTitle = sender.state == .on }
-        else if sender === matchURL { prefs.matchURL = sender.state == .on }
-        else if sender === matchFolders { prefs.matchFolders = sender.state == .on }
+        prefs.includeInDefaultResults = defaultBookmarksSwitch.state == .on
+        saveBookmarkPreferences(prefs)
+    }
+
+    private func saveBookmarkPreferences(_ prefs: BookmarkPreferences) {
+        guard let bookmarks else { return }
         do {
             try bookmarks.updatePreferences(prefs)
-            feedback.stringValue = L10n.tr("settings.bookmarks.preference_saved")
-        } catch { feedback.stringValue = error.localizedDescription }
+            statusBanner.clear()
+        } catch {
+            statusBanner.show(error.localizedDescription, level: .error)
+        }
         reloadBookmarks()
     }
 
-    @objc private func profileChanged(_ sender: NSButton) {
-        guard let bookmarks, let id = sender.identifier?.rawValue else { return }
-        do { try bookmarks.setSelected(sender.state == .on, profileID: id) }
-        catch { feedback.stringValue = error.localizedDescription }
+    private func toggleBookmarkProfile(id: String, selected: Bool) {
+        guard let bookmarks else { return }
+        do {
+            try bookmarks.setSelected(selected, profileID: id)
+            statusBanner.clear()
+        } catch {
+            statusBanner.show(error.localizedDescription, level: .error)
+        }
         reloadBookmarks()
     }
 
@@ -459,24 +588,24 @@ private final class SettingsPageHost: NSView {
         Task { [weak self] in
             do {
                 try await operation(bookmarks)
-                self?.feedback.stringValue = L10n.tr("settings.bookmarks.operation_succeeded")
+                self?.statusBanner.show(L10n.tr("settings.bookmarks.operation_succeeded"), level: .success)
             } catch {
-                self?.feedback.stringValue = L10n.format("settings.bookmarks.operation_failed", error.localizedDescription)
+                self?.statusBanner.show(L10n.format("settings.bookmarks.operation_failed", error.localizedDescription), level: .error)
             }
             self?.bookmarkBusy = false
             self?.reloadBookmarks()
         }
     }
 
-    @objc private func detectProfiles() {
+    private func detectProfiles() {
         runBookmarkOperation { try await $0.discoverProfiles(root: BookmarkStore.defaultChromeRoot) }
     }
 
-    @objc private func refreshBookmarks() {
+    private func refreshBookmarks() {
         runBookmarkOperation { try await $0.refreshSelected() }
     }
 
-    @objc private func chooseChromeDirectory() {
+    private func chooseChromeDirectory() {
         guard let window else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -488,7 +617,7 @@ private final class SettingsPageHost: NSView {
         }
     }
 
-    @objc private func clearBookmarks() {
+    private func clearBookmarks() {
         guard let window, let bookmarks else { return }
         let alert = NSAlert()
         alert.messageText = L10n.tr("settings.bookmarks.clear_title")
@@ -499,61 +628,45 @@ private final class SettingsPageHost: NSView {
             guard response == .alertSecondButtonReturn else { return }
             do {
                 try bookmarks.clearImportedData()
-                self?.feedback.stringValue = L10n.tr("settings.bookmarks.cleared")
-            } catch { self?.feedback.stringValue = error.localizedDescription }
+                self?.statusBanner.show(L10n.tr("settings.bookmarks.cleared"), level: .success)
+            } catch {
+                self?.statusBanner.show(error.localizedDescription, level: .error)
+            }
             self?.reloadBookmarks()
         }
     }
+}
 
-    @objc private func addDirectory() {
-        guard let window else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = L10n.tr("common.add")
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let self else { return }
-            self.paths = Array(Set(self.paths + panel.urls.map { $0.standardizedFileURL.path })).sorted()
-            self.reloadDirectories()
-        }
-    }
+// MARK: - Immutable LauncherSettings Copy Helper
 
-    @objc private func removeDirectory() {
-        guard paths.indices.contains(directories.indexOfSelectedItem) else { return }
-        paths = paths.enumerated().filter { $0.offset != directories.indexOfSelectedItem }.map(\.element)
-        reloadDirectories()
-    }
-
-    @objc private func clearHistory() {
-        usage.clear()
-        feedback.stringValue = L10n.tr("settings.usage_cleared")
-    }
-
-    @objc private func saveSettings() {
-        window?.makeFirstResponder(nil)
-        do {
-            let appShortcuts = try appShortcutsSettings.validatedShortcuts()
-            let imageUpload = try imageUploadSettings.buildValidatedSettings()
-            let value = LauncherSettings(hotKey: hotKeyRecorder.binding ?? .optionSpace,
-                                         searchDirectories: paths,
-                                         searchEngine: SearchEngine.allCases[engine.indexOfSelectedItem],
-                                         rememberUsage: remember.state == .on,
-                                         webSearches: webSearchSettings.definitions,
-                                         fallbackOnlyWhenNoResults: fallback.indexOfSelectedItem == 1,
-                                         clipboardHotKey: clipboardHotKeyRecorder.binding ?? .optionCommandC,
-                                         language: AppLanguage.allCases[languagePopup.indexOfSelectedItem],
-                                         screenshotHotKey: screenshotHotKeyRecorder.binding,
-                                         appShortcuts: appShortcuts,
-                                         mouseScroll: mouseScrollSettings.currentSettings,
-                                         imageUpload: imageUpload)
-            let languageChanged = value.language != store.settings.language
-            try apply(value)
-            try imageUploadSettings.commitPendingSecrets()
-            reloadMouseStatus()
-            feedback.stringValue = languageChanged ? L10n.tr("settings.restart_required") : L10n.tr("settings.saved")
-        } catch {
-            feedback.stringValue = error.localizedDescription
-        }
+private extension LauncherSettings {
+    func updating(
+        hotKey: HotKeyPreset? = nil,
+        searchDirectories: [String]? = nil,
+        searchEngine: SearchEngine? = nil,
+        rememberUsage: Bool? = nil,
+        webSearches: [WebSearchDefinition]? = nil,
+        fallbackOnlyWhenNoResults: Bool? = nil,
+        clipboardHotKey: HotKeyPreset? = nil,
+        language: AppLanguage? = nil,
+        screenshotHotKey: HotKeyPreset?? = nil,
+        appShortcuts: [AppShortcut]? = nil,
+        mouseScroll: MouseScrollSettings? = nil,
+        imageUpload: ImageUploadSettings? = nil
+    ) -> LauncherSettings {
+        LauncherSettings(
+            hotKey: hotKey ?? self.hotKey,
+            searchDirectories: searchDirectories ?? self.searchDirectories,
+            searchEngine: searchEngine ?? self.searchEngine,
+            rememberUsage: rememberUsage ?? self.rememberUsage,
+            webSearches: webSearches ?? self.webSearches,
+            fallbackOnlyWhenNoResults: fallbackOnlyWhenNoResults ?? self.fallbackOnlyWhenNoResults,
+            clipboardHotKey: clipboardHotKey ?? self.clipboardHotKey,
+            language: language ?? self.language,
+            screenshotHotKey: screenshotHotKey ?? self.screenshotHotKey,
+            appShortcuts: appShortcuts ?? self.appShortcuts,
+            mouseScroll: mouseScroll ?? self.mouseScroll,
+            imageUpload: imageUpload ?? self.imageUpload
+        )
     }
 }

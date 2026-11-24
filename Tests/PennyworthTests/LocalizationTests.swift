@@ -93,6 +93,7 @@ final class LocalizationTests: XCTestCase {
         let controller = SettingsWindowController(store: store, usage: UsageStore(defaults: defaults)) {
             try store.save($0)
         }
+        controller.window?.animationBehavior = .none
         controller.showWindow(nil)
         defer { controller.close() }
         let content = try XCTUnwrap(controller.window?.contentView)
@@ -102,8 +103,7 @@ final class LocalizationTests: XCTestCase {
         })
 
         popup.selectItem(at: 2)
-        let save = try XCTUnwrap(views.compactMap { $0 as? NSButton }.first { $0.title == L10n.tr("settings.save") })
-        save.performClick(nil)
+        popup.sendAction(popup.action, to: popup.target)
 
         XCTAssertEqual(store.settings.language, .english)
         XCTAssertEqual(SettingsStore(defaults: defaults).settings.language, .english)

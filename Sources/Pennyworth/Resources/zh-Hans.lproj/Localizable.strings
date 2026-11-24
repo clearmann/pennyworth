@@ -122,7 +122,7 @@
 "settings.save" = "保存";
 "settings.saved" = "设置已保存。";
 "settings.restart_required" = "设置已保存。重启 Pennyworth 后使用所选语言。";
-"settings.save_help" = "常规设置点击保存生效；书签选项与导入操作立即保存。";
+"settings.save_help" = "所有修改会自动保存并立即生效。";
 "settings.page.general" = "通用";
 "settings.page.default_results" = "默认结果";
 "settings.page.file_search" = "文件搜索";
@@ -185,9 +185,9 @@
 "settings.bookmarks.reading" = "正在读取 Chrome 书签…";
 "settings.bookmarks.import_status" = "上次成功导入：%@\n已导入 %d 条，跳过 %d 条不支持的网址。";
 "settings.bookmarks.import_help" = "尚未导入书签。勾选个人资料后，点击立即导入 / 刷新。";
-"settings.bookmarks.preference_saved" = "书签选项已保存。常规设置仍需点击保存。";
+"settings.bookmarks.preference_saved" = "书签选项已更新。";
 "settings.bookmarks.operation_succeeded" = "书签操作完成，数据已保存。";
-"settings.bookmarks.operation_failed" = "书签操作失败：%@。保留上次成功导入的数据。";
+"settings.bookmarks.operation_failed" = "书签操作失败：%@（已保留上次导入的数据）";
 "settings.bookmarks.choose_message" = "请选择包含 Default 或 Profile 子目录的 Chrome 数据目录。";
 "settings.bookmarks.clear_title" = "清除已导入书签？";
 "settings.bookmarks.clear_message" = "只删除 Pennyworth 保存的书签副本，不会修改 Chrome。之后可以重新导入。";
@@ -195,7 +195,8 @@
 
 "bookmark.error.too_large" = "书签文件超过 32 MB 限制。";
 "bookmark.error.symlink" = "个人资料路径已变为符号链接，请重新选择。";
-"bookmark.error.encrypted" = "检测到 Chrome 加密书签，当前不支持读取；保留上次导入的数据。";
+"bookmark.error.encrypted" = "检测到仅含加密格式的 Chrome 书签，当前不支持读取。";
+"bookmark.error.permission_denied" = "macOS 阻止了 Pennyworth 读取 Chrome 书签文件（仅只读访问）。请点击「选择 Chrome 数据目录…」重新授权，或在「系统设置 → 隐私与安全性 → 完全磁盘访问权限」中允许 Pennyworth。";
 "bookmark.error.not_found" = "未找到 Chrome 书签文件。";
 "bookmark.error.outside_profile" = "书签文件不能指向个人资料目录之外。";
 "bookmark.error.invalid_structure" = "Chrome 书签结构无效。";
@@ -278,7 +279,7 @@
 "settings.general.right_command_note" = "全局热键设为不带修饰键的 F19 时，也可以轻按并松开右 ⌘ 来显示或隐藏搜索框。右 ⌘ 组合键不会额外唤出搜索，左 ⌘ 不受影响。";
 "settings.page.app_shortcuts" = "应用快捷键";
 "settings.app_shortcuts.description" = "为常用应用绑定全局快捷键，一键启动或切换到目标应用。";
-"settings.app_shortcuts.note" = "支持区分左右 Command：例如将微信设为“右⌘W”后，“左⌘W”仍保持关闭窗口功能。点击保存生效。";
+"settings.app_shortcuts.note" = "支持区分左右 Command：例如将微信设为“右⌘W”后，“左⌘W”仍保持关闭窗口功能。点击行内键帽可直接重新录制。";
 "app_shortcuts.column.app" = "应用";
 "app_shortcuts.column.hotkey" = "快捷键";
 "app_shortcuts.column.path" = "应用路径";
@@ -301,7 +302,7 @@
 
 "settings.page.mouse" = "鼠标";
 "settings.mouse.description" = "独立反转物理鼠标滚轮方向（不影响触控板），并为普通鼠标提供平滑惯性滚动。";
-"settings.mouse.note" = "仅对物理鼠标滚轮全局生效；触控板手势以及按住 Command/Control 缩放滚轮不受影响。点击保存生效。";
+"settings.mouse.note" = "仅对物理鼠标滚轮全局生效；触控板手势以及按住 Command/Control 缩放滚轮不受影响。";
 "mouse.reverse_scroll" = "独立反转鼠标滚轮方向（不影响触控板）";
 "mouse.reverse_scroll_accessibility" = "反转鼠标滚轮方向";
 "mouse.smooth_scroll" = "启用鼠标平滑滚动";
@@ -317,7 +318,7 @@
 "mouse.permission.refresh" = "重新检查";
 "mouse.permission.settings_failed" = "无法打开辅助功能设置，请手动打开系统设置。";
 "mouse.permission.status.active" = "辅助功能权限：已授权 · 鼠标滚轮增强已生效。";
-"mouse.permission.status.granted" = "辅助功能权限：已授权（勾选下方选项并保存后立即生效）。";
+"mouse.permission.status.granted" = "辅助功能权限：已授权（开启下方选项即可生效）。";
 "mouse.permission.status.not_granted" = "辅助功能权限：未授权（启用鼠标滚轮增强需要此权限）。";
 "mouse.permission.status.awaiting" = "等待辅助功能权限：请在「系统设置 → 隐私与安全性 → 辅助功能」中允许 Pennyworth，授权后将自动生效。";
 "mouse.permission.status.tap_failed" = "已获得辅助功能权限，但滚轮事件监听启动失败，请尝试退出并重新打开 Pennyworth。";
@@ -325,7 +326,7 @@
 
 "settings.page.image_upload" = "图床";
 "settings.image_upload.description" = "将图片或文件上传到 S3 兼容存储、阿里云 OSS、腾讯云 COS 或七牛云，并自动复制链接到剪贴板。";
-"settings.image_upload.note" = "Secret Key 仅安全保存在 macOS 钥匙串中，不写入明文设置。可将文件直接拖拽到菜单栏图标上传。点击保存生效。";
+"settings.image_upload.note" = "Secret Key 仅安全保存在 macOS 钥匙串中，不写入明文设置。可将文件直接拖拽到菜单栏图标上传。";
 
 "menu.upload_file" = "上传文件…";
 "menu.upload_file_hotkey" = "上传文件… (%@)";
@@ -431,4 +432,111 @@
 "image_upload.error.invalid_response" = "服务器返回异常响应：%@";
 "image_upload.error.keychain_failure" = "钥匙串操作失败（错误码 %d）。";
 "image_upload.error.hotkey_registration_failed" = "无法注册上传热键 %@。该组合可能已被其他应用占用，请在设置中更换。";
+
+"settings.group.basics" = "基础";
+"settings.group.search" = "搜索与启动";
+"settings.group.tools" = "效率工具";
+"common.edit" = "编辑";
+"common.delete" = "删除";
+"common.dismiss" = "关闭提示";
+"common.always_on" = "始终启用";
+"hotkey.clear_accessibility" = "清除快捷键";
+"hotkey.click_short" = "点击录制";
+"hotkey.recording_short" = "按下快捷键…";
+
+"settings.general.section.appearance" = "语言与界面";
+"settings.general.section.hotkeys" = "全局热键";
+"settings.general.section.usage" = "排序与使用记录";
+"settings.general.language_subtitle" = "更改后需重启 Pennyworth 生效";
+"settings.general.hotkey_subtitle" = "在任意应用中快速唤出或隐藏搜索面板";
+"settings.general.clipboard_subtitle" = "快速搜索与恢复近期剪贴板记录";
+"settings.general.remember_subtitle" = "根据启动频次自动将常用应用排在靠前位置";
+"settings.general.clear_usage_title" = "应用排序记录";
+"settings.general.clear_usage_subtitle" = "清除已记录的打开频次数据，恢复默认排序";
+
+"app_shortcuts.empty.title" = "尚未绑定应用快捷键";
+"app_shortcuts.empty.subtitle" = "为微信、浏览器或编辑器绑定全局热键，一键启动或切回。";
+"app_shortcuts.sheet.title" = "添加应用快捷键";
+"app_shortcuts.sheet.search_placeholder" = "搜索已安装的应用…";
+"app_shortcuts.sheet.browse_other" = "浏览其他应用…";
+"app_shortcuts.sheet.no_results" = "没有匹配的应用，可点击下方「浏览其他应用…」手动选择";
+"app_shortcuts.sheet.selected_app" = "已选应用";
+"app_shortcuts.row.toggle_accessibility" = "启用 %@ 快捷键";
+"app_shortcuts.row.delete_accessibility" = "删除 %@ 快捷键";
+"app_shortcuts.row.hotkey_accessibility" = "%@ 触发热键";
+
+"settings.default_results.section.sources" = "默认搜索范围";
+"settings.default_results.section.fallback" = "兜底行为";
+"settings.default_results.apps_title" = "应用程序";
+"settings.default_results.bookmarks_title" = "Chrome 网页书签";
+"settings.default_results.bookmarks_subtitle" = "关闭后仍可在启动器中输入 bm 搜索书签";
+"settings.default_results.fallback_subtitle" = "决定何时在结果末尾显示默认搜索引擎入口";
+
+"settings.file_search.section.directories" = "索引目录";
+"settings.file_search.section.commands" = "快捷命令";
+"settings.file_search.empty.title" = "尚未添加搜索目录";
+"settings.file_search.empty.subtitle" = "添加文稿、桌面或下载等目录后，按空格即可在启动器中搜索文件。";
+"settings.file_search.remove_accessibility" = "移除目录 %@";
+"settings.file_search.cmd_open_title" = "打开文件";
+"settings.file_search.cmd_open_subtitle" = "使用系统默认应用打开匹配的文件";
+"settings.file_search.cmd_find_title" = "在 Finder 中显示";
+"settings.file_search.cmd_find_subtitle" = "在 Finder 中定位并高亮选中文件";
+
+"web_search.section.default_engine" = "默认引擎";
+"web_search.section.keywords" = "关键词快捷搜索";
+"web_search.engine_subtitle" = "作为网页搜索兜底或直接回车时的默认搜索引擎";
+"web_search.sheet.add_title" = "添加自定义搜索";
+"web_search.sheet.edit_title" = "编辑自定义搜索";
+"web_search.sheet.url_hint" = "使用 {query} 代表搜索关键词，仅支持 http:// 或 https:// 网址。";
+"web_search.row.toggle_accessibility" = "启用 %@ 网页搜索";
+"web_search.row.edit_accessibility" = "编辑 %@ 网页搜索";
+"web_search.row.delete_accessibility" = "删除 %@ 网页搜索";
+
+"settings.bookmarks.section.general" = "书签搜索";
+"settings.bookmarks.section.profiles" = "Chrome 个人资料与同步";
+"settings.bookmarks.section.matching" = "匹配规则";
+"settings.bookmarks.section.storage" = "本地数据";
+"settings.bookmarks.enabled_subtitle" = "允许通过启动器检索已导入的 Chrome 书签";
+"settings.bookmarks.clear_subtitle" = "仅删除 Pennyworth 的本地副本，不影响浏览器原始书签";
+
+"settings.calculator.section.usage" = "使用方式";
+"settings.calculator.direct_title" = "直接输入算式";
+"settings.calculator.prefix_title" = "显式计算模式";
+"settings.calculator.prefix_subtitle" = "以 = 开头可强制按计算器解析表达式";
+"settings.calculator.copy_title" = "一键复制结果";
+"settings.calculator.copy_subtitle" = "选中计算结果后按回车直接复制到剪贴板";
+
+"settings.screenshots.section.hotkey" = "快捷键";
+"settings.screenshots.section.commands" = "启动器命令";
+"settings.screenshots.hotkey_subtitle" = "点击清除按钮或录制时按 Delete 可禁用截图热键";
+
+"mouse.section.permission" = "辅助功能权限";
+"mouse.section.behavior" = "滚轮增强";
+"mouse.reverse_subtitle" = "仅反转物理鼠标滚轮，触控板自然滚动保持不变";
+"mouse.smooth_subtitle" = "为刻度鼠标提供丝滑的惯性缓动效果";
+"mouse.speed_subtitle" = "调节物理鼠标滚轮的滚动倍率（0.5x – 3.0x）";
+"mouse.smoothness_subtitle" = "开启平滑滚动后可切换手感曲线";
+
+"image_upload.tab.hosts" = "图床配置";
+"image_upload.tab.preferences" = "上传偏好";
+"image_upload.tab.history" = "上传历史";
+"image_upload.section.hotkeys" = "快捷上传热键";
+"image_upload.empty.hosts_title" = "尚未配置图床";
+"image_upload.empty.hosts_subtitle" = "支持 S3 / R2、阿里云 OSS、腾讯云 COS 与七牛云，密钥安全存储在 macOS 钥匙串中。";
+"image_upload.empty.history_title" = "暂无上传记录";
+"image_upload.empty.history_subtitle" = "上传图片或将文件拖到菜单栏图标后，记录会显示在这里。";
+"image_upload.badge.default" = "默认";
+"image_upload.badge.keychain_saved" = "密钥已存钥匙串";
+"image_upload.sheet.add_title" = "添加图床";
+"image_upload.sheet.edit_title" = "编辑图床";
+"image_upload.sheet.section.basic" = "基础信息";
+"image_upload.sheet.section.auth" = "存储与凭证";
+"image_upload.sheet.section.delivery" = "访问与路径";
+"image_upload.row.set_default_accessibility" = "将 %@ 设为默认图床";
+"image_upload.row.edit_accessibility" = "编辑图床 %@";
+"image_upload.row.delete_accessibility" = "删除图床 %@";
+"image_upload.row.copy_accessibility" = "复制 %@ 的链接";
+"image_upload.encode_url_subtitle" = "对链接中的中文和特殊字符进行百分号编码";
+"image_upload.compress_subtitle" = "设为 100% 时保持原图上传，调低可显著减小体积";
+"image_upload.history.copied_feedback" = "已复制链接到剪贴板。";
 

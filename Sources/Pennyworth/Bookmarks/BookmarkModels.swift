@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct BookmarkPreferences: Codable, Equatable {
     var enabled = false
@@ -49,11 +50,40 @@ enum ChromeBookmarkReader {
         return data
     }
 
+    static func mapPermissionError(_ error: Error) -> Error {
+        if isPermissionDenied(error) {
+            return BookmarkError.invalid(L10n.tr("bookmark.error.permission_denied"))
+        }
+        return error
+    }
+
+    private static func isPermissionDenied(_ error: Error, depth: Int = 0) -> Bool {
+        guard depth < 6 else { return false }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == NSFileReadNoPermissionError || nsError.code == NSFileWriteNoPermissionError {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain,
+           nsError.code == Int(EPERM) || nsError.code == Int(EACCES) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isPermissionDenied(underlying, depth: depth + 1)
+        }
+        return false
+    }
+
     static func discover(root: URL) throws -> [ChromeProfile] {
         // Keep the user's path spelling for stable profile IDs; resolve only
         // when checking containment so /var and /private/var remain equivalent.
         let root = root.standardizedFileURL
-        let urls = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let urls: [URL]
+        do {
+            urls = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        } catch {
+            throw mapPermissionError(error)
+        }
         var names: [String: String] = [:]
         let state = root.appendingPathComponent("Local State")
         if FileManager.default.fileExists(atPath: state.path), isContained(state, in: root),
@@ -84,24 +114,36 @@ enum ChromeBookmarkReader {
 
     static func snapshot(profile: ChromeProfile) throws -> BookmarkSnapshot {
         let directory = URL(fileURLWithPath: profile.id, isDirectory: true).standardizedFileURL
-        let values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        let values: URLResourceValues
+        do {
+            values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        } catch {
+            throw mapPermissionError(error)
+        }
         guard values.isDirectory == true, values.isSymbolicLink != true else {
             throw BookmarkError.invalid(L10n.tr("bookmark.error.symlink"))
         }
         let fm = FileManager.default
-        let encrypted = ["EncryptedBookmarks2", "EncryptedAccountBookmarks2"].contains {
-            fm.fileExists(atPath: directory.appendingPathComponent($0).path)
-        }
-        guard !encrypted else { throw BookmarkError.invalid(L10n.tr("bookmark.error.encrypted")) }
         let files = ["Bookmarks", "AccountBookmarks"].map { directory.appendingPathComponent($0) }
             .filter { fm.fileExists(atPath: $0.path) }
-        guard !files.isEmpty else { throw BookmarkError.invalid(L10n.tr("bookmark.error.not_found")) }
+        if files.isEmpty {
+            let encrypted = ["EncryptedBookmarks2", "EncryptedAccountBookmarks2"].contains {
+                fm.fileExists(atPath: directory.appendingPathComponent($0).path)
+            }
+            throw BookmarkError.invalid(L10n.tr(encrypted ? "bookmark.error.encrypted" : "bookmark.error.not_found"))
+        }
         var entries: [BookmarkEntry] = []
         var skipped = 0
         var nodes = 0
         for file in files {
             guard isContained(file, in: directory) else { throw BookmarkError.invalid(L10n.tr("bookmark.error.outside_profile")) }
-            let json = try JSONSerialization.jsonObject(with: readData(file))
+            let rawData: Data
+            do {
+                rawData = try readData(file)
+            } catch {
+                throw mapPermissionError(error)
+            }
+            let json = try JSONSerialization.jsonObject(with: rawData)
             guard let object = json as? [String: Any], let roots = object["roots"] as? [String: Any],
                   roots["bookmark_bar"] != nil else { throw BookmarkError.invalid(L10n.tr("bookmark.error.invalid_structure")) }
             for key in ["bookmark_bar", "other", "synced"] {
