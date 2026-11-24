@@ -44,8 +44,8 @@ import AppKit
     private let apply: (LauncherSettings) throws -> Void
 
     private var activeSettings: LauncherSettings
-    let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false)
-    let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC, allowsClearing: false)
+    let hotKeyRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+    let clipboardHotKeyRecorder = HotKeyRecorderView(binding: .optionCommandC, allowsClearing: false, allowsModifierTap: true)
     let screenshotHotKeyRecorder = HotKeyRecorderView(binding: .controlOptionP, allowsClearing: true)
     let languagePopup = NSPopUpButton()
     let rememberSwitch = NSSwitch()

@@ -137,33 +137,33 @@ final class HotKeyTests: XCTestCase {
         XCTAssertFalse(monitor.isStarted)
     }
 
-    func testRightCommandTapTriggersRegisteredF19OnlyForShortTap() throws {
+    func testRightCommandTapTriggersOnlyForShortTap() throws {
         let backend = FakeHotKeyBackend()
         let monitor = FakeRightCommandMonitor()
         let manager = HotKeyManager(backend: backend, modifierMonitor: monitor, inputWasQuietSince: { _ in true })
-        var f19Triggered = 0
+        var launcherTriggered = 0
 
-        try manager.register(name: "launcher", keyCode: 80, modifiers: 0) { f19Triggered += 1 }
-        XCTAssertTrue(monitor.isStarted, "A registered F19 hotkey should enable Right Command tap monitoring")
+        try manager.register(name: "launcher", preset: .rightCommandTap) { launcherTriggered += 1 }
+        XCTAssertTrue(monitor.isStarted, "A registered Right Command tap hotkey should enable monitoring")
 
         monitor.setRightCommand(true, at: 1.0)
-        XCTAssertEqual(f19Triggered, 0, "Wait for release so the next key can still form a chord")
+        XCTAssertEqual(launcherTriggered, 0, "Wait for release so the next key can still form a chord")
         monitor.setRightCommand(false, at: 1.12)
-        XCTAssertEqual(f19Triggered, 1)
+        XCTAssertEqual(launcherTriggered, 1)
 
         monitor.setRightCommand(true, at: 2.0)
         monitor.setRightCommand(false, at: 2.5)
-        XCTAssertEqual(f19Triggered, 1, "A long Right Command hold must not trigger F19 on release")
+        XCTAssertEqual(launcherTriggered, 1, "A long Right Command hold must not trigger on release")
     }
 
-    func testRightCommandChordSuppressesF19OnlyForThatHold() throws {
+    func testRightCommandChordSuppressesTapOnlyForThatHold() throws {
         let backend = FakeHotKeyBackend()
         let monitor = FakeRightCommandMonitor()
         let manager = HotKeyManager(backend: backend, modifierMonitor: monitor, inputWasQuietSince: { _ in true })
-        var f19Triggered = 0
+        var launcherTriggered = 0
         var wechatTriggered = 0
 
-        try manager.register(name: "launcher", keyCode: 80, modifiers: 0) { f19Triggered += 1 }
+        try manager.register(name: "launcher", preset: .rightCommandTap) { launcherTriggered += 1 }
         try manager.register(name: "app.wechat", keyCode: 13, modifiers: HotKeyModifiers.rightCommand) {
             wechatTriggered += 1
         }
@@ -173,11 +173,11 @@ final class HotKeyTests: XCTestCase {
         backend.emit(id: wechatSlotID)
         monitor.setRightCommand(false, at: 3.08)
         XCTAssertEqual(wechatTriggered, 1)
-        XCTAssertEqual(f19Triggered, 0, "Releasing Right Command after Right ⌘W must not also open the launcher")
+        XCTAssertEqual(launcherTriggered, 0, "Releasing Right Command after Right ⌘W must not also open the launcher")
 
         monitor.setRightCommand(true, at: 4)
         monitor.setRightCommand(false, at: 4.08)
-        XCTAssertEqual(f19Triggered, 1, "A later independent tap should still trigger F19")
+        XCTAssertEqual(launcherTriggered, 1, "A later independent tap should still trigger the launcher")
     }
 
     func testLeftAndRightCommandShareCarbonSlotAndDispatchIndependently() throws {
@@ -278,6 +278,128 @@ final class HotKeyTests: XCTestCase {
         recorder.clearBinding()
         XCTAssertNil(recorder.binding)
         XCTAssertEqual(changes, [nil])
+    }
+
+    func testModifierTapPresetsRoundTripAndFormatLocalizedTitles() throws {
+        defer { AppLocalization.configure(language: .system) }
+        let presets: [HotKeyPreset] = [
+            .rightCommandTap,
+            .doubleTap(.command),
+            .doubleTap(.option),
+            .doubleTap(.control),
+            .doubleTap(.shift),
+        ]
+        for preset in presets {
+            let data = try JSONEncoder().encode(preset)
+            let decoded = try JSONDecoder().decode(HotKeyPreset.self, from: data)
+            XCTAssertEqual(decoded, preset)
+        }
+
+        AppLocalization.configure(language: .simplifiedChinese)
+        XCTAssertEqual(HotKeyPreset.rightCommandTap.title, "轻按右 ⌘")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.command).title, "双击 ⌘")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.option).title, "双击 ⌥")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.control).title, "双击 ⌃")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.shift).title, "双击 ⇧")
+
+        AppLocalization.configure(language: .english)
+        XCTAssertEqual(HotKeyPreset.rightCommandTap.title, "Right ⌘ Tap")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.command).title, "⌘ Double Tap")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.option).title, "⌥ Double Tap")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.control).title, "⌃ Double Tap")
+        XCTAssertEqual(HotKeyPreset.doubleTap(.shift).title, "⇧ Double Tap")
+    }
+
+    @MainActor func testRecorderRecordsDoubleTapModifiersDirectly() {
+        let leftFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x08)
+        let rightFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x10)
+
+        let cases: [(ModifierTapKey, UInt16, NSEvent.ModifierFlags)] = [
+            (.command, UInt16(kVK_Command), leftFlags),
+            (.command, UInt16(kVK_RightCommand), rightFlags),
+            (.option, UInt16(kVK_Option), .option),
+            (.control, UInt16(kVK_Control), .control),
+            (.shift, UInt16(kVK_Shift), .shift),
+        ]
+
+        for (key, keyCode, flags) in cases {
+            let recorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+            var changes: [HotKeyPreset?] = []
+            recorder.onChange = { changes.append($0) }
+
+            recorder.beginRecording()
+            recorder.processModifierFlags(flags, keyCode: keyCode, timestamp: 1.0)
+            recorder.processModifierFlags([], keyCode: keyCode, timestamp: 1.06)
+            XCTAssertTrue(recorder.isRecording)
+            recorder.processModifierFlags(flags, keyCode: keyCode, timestamp: 1.18)
+            recorder.processModifierFlags([], keyCode: keyCode, timestamp: 1.24)
+
+            XCTAssertFalse(recorder.isRecording)
+            XCTAssertEqual(recorder.binding, .doubleTap(key))
+            XCTAssertEqual(changes, [.doubleTap(key)])
+        }
+
+        // Standard combo cancels pending tap immediately.
+        let comboRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+        comboRecorder.beginRecording()
+        comboRecorder.processModifierFlags(rightFlags, keyCode: UInt16(kVK_RightCommand), timestamp: 2.0)
+        XCTAssertTrue(comboRecorder.processKey(keyCode: UInt32(kVK_ANSI_W), modifiers: HotKeyModifiers.rightCommand))
+        XCTAssertFalse(comboRecorder.isRecording)
+        XCTAssertEqual(comboRecorder.binding, .custom(keyCode: UInt32(kVK_ANSI_W), modifiers: HotKeyModifiers.rightCommand))
+
+        // Recorders with allowsModifierTap == false ignore modifier-only taps.
+        let standardRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: true, allowsModifierTap: false)
+        standardRecorder.beginRecording()
+        standardRecorder.processModifierFlags(leftFlags, keyCode: UInt16(kVK_Command), timestamp: 3.0)
+        standardRecorder.processModifierFlags([], keyCode: UInt16(kVK_Command), timestamp: 3.05)
+        standardRecorder.processModifierFlags(leftFlags, keyCode: UInt16(kVK_Command), timestamp: 3.15)
+        standardRecorder.processModifierFlags([], keyCode: UInt16(kVK_Command), timestamp: 3.2)
+        XCTAssertTrue(standardRecorder.isRecording)
+        XCTAssertEqual(standardRecorder.binding, .optionSpace)
+    }
+
+    @MainActor func testRecorderRecordsSingleRightCommandTapAfterGraceWindowAndCancelsOnEscape() {
+        let rightFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x10)
+        let leftFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x08)
+
+        let recorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+        recorder.modifierTapCommitDelay = 0.02
+        let committed = expectation(description: "Single Right Command tap commits after grace window")
+        var changes: [HotKeyPreset?] = []
+        recorder.onChange = { binding in
+            changes.append(binding)
+            if binding == .rightCommandTap { committed.fulfill() }
+        }
+
+        recorder.beginRecording()
+        recorder.processModifierFlags(rightFlags, keyCode: UInt16(kVK_RightCommand), timestamp: 1.0)
+        recorder.processModifierFlags([], keyCode: UInt16(kVK_RightCommand), timestamp: 1.06)
+        wait(for: [committed], timeout: 1.0)
+        XCTAssertFalse(recorder.isRecording)
+        XCTAssertEqual(recorder.binding, .rightCommandTap)
+        XCTAssertEqual(changes, [.rightCommandTap])
+
+        // Escape during grace window cancels and restores original binding.
+        let escapeRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+        escapeRecorder.modifierTapCommitDelay = 0.05
+        escapeRecorder.beginRecording()
+        escapeRecorder.processModifierFlags(rightFlags, keyCode: UInt16(kVK_RightCommand), timestamp: 2.0)
+        escapeRecorder.processModifierFlags([], keyCode: UInt16(kVK_RightCommand), timestamp: 2.05)
+        XCTAssertTrue(escapeRecorder.processKey(keyCode: UInt32(kVK_Escape), modifiers: 0))
+        XCTAssertFalse(escapeRecorder.isRecording)
+        XCTAssertEqual(escapeRecorder.binding, .optionSpace)
+
+        // Single Left Command tap expires without committing.
+        let leftRecorder = HotKeyRecorderView(binding: .optionSpace, allowsClearing: false, allowsModifierTap: true)
+        leftRecorder.modifierTapCommitDelay = 0.02
+        leftRecorder.beginRecording()
+        leftRecorder.processModifierFlags(leftFlags, keyCode: UInt16(kVK_Command), timestamp: 3.0)
+        leftRecorder.processModifierFlags([], keyCode: UInt16(kVK_Command), timestamp: 3.05)
+        let expired = expectation(description: "Single Left Command tap expires while staying in recording state")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { expired.fulfill() }
+        wait(for: [expired], timeout: 1.0)
+        XCTAssertTrue(leftRecorder.isRecording)
+        XCTAssertEqual(leftRecorder.binding, .optionSpace)
     }
 }
 

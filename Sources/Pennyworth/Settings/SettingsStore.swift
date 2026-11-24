@@ -6,11 +6,28 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
     case optionCommandC, controlOptionC
     case commandComma
     case controlOptionP
+    case rightCommandTap
+    case doubleTap(ModifierTapKey)
     case custom(keyCode: UInt32, modifiers: UInt32)
 
     var isCustom: Bool {
         if case .custom = self { return true }
         return false
+    }
+
+    var isModifierTap: Bool {
+        switch self {
+        case .rightCommandTap, .doubleTap: return true
+        default: return false
+        }
+    }
+
+    var trigger: HotKeyTrigger {
+        switch self {
+        case .rightCommandTap: return .rightCommandTap
+        case .doubleTap(let key): return .doubleTap(key)
+        default: return .keyCombo(keyCode: keyCode, modifiers: modifiers)
+        }
     }
 
     var title: String {
@@ -22,6 +39,8 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
         case .controlOptionC: return "⌃ ⌥ C"
         case .commandComma: return "⌘ ,"
         case .controlOptionP: return "⌃ ⌥ P"
+        case .rightCommandTap: return L10n.tr("hotkey.right_command_tap")
+        case .doubleTap(let key): return L10n.format("hotkey.double_tap", key.symbol)
         case .custom(let keyCode, let modifiers):
             return Self.modifierTitle(modifiers) + Self.keyTitle(keyCode)
         }
@@ -33,6 +52,7 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
         case .optionCommandC, .controlOptionC: return UInt32(kVK_ANSI_C)
         case .commandComma: return UInt32(kVK_ANSI_Comma)
         case .controlOptionP: return UInt32(kVK_ANSI_P)
+        case .rightCommandTap, .doubleTap: return 0
         case .custom(let keyCode, _): return keyCode
         }
     }
@@ -46,6 +66,7 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
         case .controlOptionC: return UInt32(controlKey | optionKey)
         case .commandComma: return UInt32(cmdKey)
         case .controlOptionP: return UInt32(controlKey | optionKey)
+        case .rightCommandTap, .doubleTap: return 0
         case .custom(_, let modifiers): return modifiers
         }
     }
@@ -57,9 +78,10 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
         HotKeyKeyCodeTitles.extendedFunctionKeys[keyCode] != nil
     }
 
-    private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
+    private enum CodingKeys: String, CodingKey { case keyCode, modifiers, doubleTap }
     private enum Fixed: String, Codable {
         case optionSpace, optionShiftSpace, controlOptionSpace, optionCommandC, controlOptionC, commandComma, controlOptionP
+        case rightCommandTap
     }
 
     init(from decoder: Decoder) throws {
@@ -72,10 +94,15 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
             case .controlOptionC: self = .controlOptionC
             case .commandComma: self = .commandComma
             case .controlOptionP: self = .controlOptionP
+            case .rightCommandTap: self = .rightCommandTap
             }
             return
         }
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        if values.contains(.doubleTap) {
+            self = .doubleTap(try values.decode(ModifierTapKey.self, forKey: .doubleTap))
+            return
+        }
         self = .custom(keyCode: try values.decode(UInt32.self, forKey: .keyCode),
                        modifiers: try values.decode(UInt32.self, forKey: .modifiers))
     }
@@ -89,6 +116,10 @@ enum HotKeyPreset: Equatable, Codable, Sendable {
         case .controlOptionC: try encodeFixed(.controlOptionC, to: encoder)
         case .commandComma: try encodeFixed(.commandComma, to: encoder)
         case .controlOptionP: try encodeFixed(.controlOptionP, to: encoder)
+        case .rightCommandTap: try encodeFixed(.rightCommandTap, to: encoder)
+        case .doubleTap(let key):
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(key, forKey: .doubleTap)
         case .custom(let keyCode, let modifiers):
             var values = encoder.container(keyedBy: CodingKeys.self)
             try values.encode(keyCode, forKey: .keyCode)
@@ -182,7 +213,7 @@ struct LauncherSettings: Codable, Equatable {
             let existing = [hotKey, clipboardHotKey] + appShortcuts.map(\.hotKey)
                 + [imageUpload.uploadClipboardHotKey, imageUpload.uploadFileHotKey].compactMap { $0 }
             let collides = existing.contains {
-                $0.keyCode == candidate.keyCode && $0.modifiers == candidate.modifiers
+                $0.trigger == candidate.trigger
             }
             screenshotHotKey = collides ? nil : candidate
         }
@@ -302,16 +333,16 @@ final class SettingsStore {
         return isValidCustomBinding(binding)
     }
 
-    /// Compares physical key combinations: .optionCommandC and .custom(⌥⌘C) are the same hotkey.
+    /// Compares physical key or modifier-tap triggers: .optionCommandC and .custom(⌥⌘C) are the same hotkey.
     private static func sameBinding(_ a: HotKeyPreset, _ b: HotKeyPreset) -> Bool {
-        a.keyCode == b.keyCode && a.modifiers == b.modifiers
+        a.trigger == b.trigger
     }
 
     private enum BindingGroup { case launcher, clipboard, screenshot }
 
     private static func isValidBinding(_ binding: HotKeyPreset, allowed: BindingGroup) -> Bool {
-        if allowed == .launcher && HotKeyPreset.launcherPresets.contains(binding) { return true }
-        if allowed == .clipboard && HotKeyPreset.clipboardPresets.contains(binding) { return true }
+        if allowed == .launcher && (HotKeyPreset.launcherPresets.contains(binding) || binding.isModifierTap) { return true }
+        if allowed == .clipboard && (HotKeyPreset.clipboardPresets.contains(binding) || binding.isModifierTap) { return true }
         if allowed == .screenshot && binding == .controlOptionP { return true }
         return isValidCustomBinding(binding)
     }

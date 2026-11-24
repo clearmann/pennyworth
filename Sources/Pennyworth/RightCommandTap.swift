@@ -53,3 +53,81 @@ final class RightCommandTap {
         }
     }
 }
+
+/// Detects Alfred-style double-taps on a single modifier key (⌘, ⌥, ⌃, ⇧).
+/// Fires only on the second clean release so fast chords (e.g., ⌘ then ⌘C) never false-trigger.
+final class ModifierDoubleTapDetector {
+    private static let maximumTapDuration: TimeInterval = 0.3
+    private static let maximumInterval: TimeInterval = 0.35
+
+    private struct ActivePress {
+        let key: ModifierTapKey
+        let keyCode: UInt16
+        let pressedAt: TimeInterval
+    }
+
+    private struct CompletedTap {
+        let key: ModifierTapKey
+        let releasedAt: TimeInterval
+    }
+
+    private let inputWasQuietSince: (TimeInterval) -> Bool
+    private var activePress: ActivePress?
+    private var lastCompletedTap: CompletedTap?
+
+    init(inputWasQuietSince: @escaping (TimeInterval) -> Bool) {
+        self.inputWasQuietSince = inputWasQuietSince
+    }
+
+    func cancel() {
+        activePress = nil
+        lastCompletedTap = nil
+    }
+
+    func completedDoubleTap(_ change: RightCommandChange) -> ModifierTapKey? {
+        guard case let .flagsChanged(keyCode, flags, timestamp) = change else {
+            cancel()
+            return nil
+        }
+        guard let key = ModifierTapKey.from(keyCode: keyCode) else {
+            cancel()
+            return nil
+        }
+        let relevant = flags.intersection(ModifierTapKey.trackedModifierFlags)
+
+        if relevant == key.flag && activePress == nil {
+            if key == .command && HotKeyModifiers.hasBothCommandKeys(flags) {
+                cancel()
+                return nil
+            }
+            if let prev = lastCompletedTap,
+               prev.key != key || !(0...Self.maximumInterval).contains(timestamp - prev.releasedAt) {
+                lastCompletedTap = nil
+            }
+            activePress = ActivePress(key: key, keyCode: keyCode, pressedAt: timestamp)
+            return nil
+        }
+
+        if relevant.isEmpty, let press = activePress {
+            activePress = nil
+            guard press.key == key, press.keyCode == keyCode,
+                  (0...Self.maximumTapDuration).contains(timestamp - press.pressedAt),
+                  inputWasQuietSince(press.pressedAt) else {
+                lastCompletedTap = nil
+                return nil
+            }
+            if let prev = lastCompletedTap,
+               prev.key == key,
+               (0...Self.maximumInterval).contains(press.pressedAt - prev.releasedAt),
+               inputWasQuietSince(prev.releasedAt) {
+                lastCompletedTap = nil
+                return key
+            }
+            lastCompletedTap = CompletedTap(key: key, releasedAt: timestamp)
+            return nil
+        }
+
+        cancel()
+        return nil
+    }
+}

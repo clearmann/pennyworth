@@ -276,7 +276,11 @@
 "screenshot.save.default_name" = "截图";
 
 "hotkey.modifier.right_command" = "右⌘";
-"settings.general.right_command_note" = "全局热键设为不带修饰键的 F19 时，也可以轻按并松开右 ⌘ 来显示或隐藏搜索框。右 ⌘ 组合键不会额外唤出搜索，左 ⌘ 不受影响。";
+"hotkey.right_command_tap" = "轻按右 ⌘";
+"hotkey.double_tap" = "双击 %@";
+"hotkey.pending_right_command_tap" = "轻按右 ⌘…";
+"hotkey.pending_double_tap" = "再按一次 %@";
+"settings.general.right_command_note" = "点击录制框后可按下组合键、双击修饰键（⌘ / ⌥ / ⌃ / ⇧）或单独轻按右 ⌘。组合键与左 ⌘ 不受影响。";
 "settings.page.app_shortcuts" = "应用快捷键";
 "settings.app_shortcuts.description" = "为常用应用绑定全局快捷键，一键启动或切换到目标应用。";
 "settings.app_shortcuts.note" = "支持区分左右 Command：例如将微信设为“右⌘W”后，“左⌘W”仍保持关闭窗口功能。点击行内键帽可直接重新录制。";

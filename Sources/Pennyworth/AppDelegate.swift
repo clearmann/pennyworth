@@ -204,8 +204,7 @@ import Carbon
                                                        candidates: HotKeyPreset.clipboardPresets) { [weak self] in
             self?.toggleClipboardPanel()
         }
-        try? HotKeyManager.shared.register(name: "settings", keyCode: HotKeyPreset.commandComma.keyCode,
-                                            modifiers: HotKeyPreset.commandComma.modifiers) { [weak self] in
+        try? HotKeyManager.shared.register(name: "settings", preset: .commandComma) { [weak self] in
             self?.showSettings()
         }
         registerScreenshotHotKey(settings.settings.screenshotHotKey)
@@ -229,8 +228,7 @@ import Carbon
         actualScreenshotHotKey = nil
         guard let preset else { return }
         do {
-            try HotKeyManager.shared.register(name: "screenshot", keyCode: preset.keyCode,
-                                              modifiers: preset.modifiers) { [weak self] in
+            try HotKeyManager.shared.register(name: "screenshot", preset: preset) { [weak self] in
                 try? self?.screenshotController.startScreenshot()
             }
             actualScreenshotHotKey = preset
@@ -297,7 +295,7 @@ import Carbon
     ) -> HotKeyPreset? {
         guard let preset else { return nil }
         do {
-            try HotKeyManager.shared.register(name: name, keyCode: preset.keyCode, modifiers: preset.modifiers, callback: callback)
+            try HotKeyManager.shared.register(name: name, preset: preset, callback: callback)
             return preset
         } catch {
             if !uploadHotKeyAlertShown {
@@ -519,11 +517,12 @@ import Carbon
 
     private func registerStartupHotKey(name: String, requested: HotKeyPreset, candidates: [HotKeyPreset],
                                        callback: @escaping () -> Void) -> HotKeyPreset? {
-        let options = requested.isCustom ? [requested] : [requested] + candidates.filter({ $0 != requested })
+        let options = (requested.isCustom || requested.isModifierTap)
+            ? [requested]
+            : [requested] + candidates.filter({ $0 != requested })
         for preset in options {
             do {
-                try HotKeyManager.shared.register(name: name, keyCode: preset.keyCode,
-                                                  modifiers: preset.modifiers, callback: callback)
+                try HotKeyManager.shared.register(name: name, preset: preset, callback: callback)
                 return preset
             } catch { continue }
         }

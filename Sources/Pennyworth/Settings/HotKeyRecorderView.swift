@@ -2,15 +2,36 @@ import AppKit
 import Carbon
 
 @MainActor final class HotKeyRecorderView: NSView {
+    private struct PendingModifierPress {
+        let key: ModifierTapKey
+        let keyCode: UInt16
+        let isRightCommand: Bool
+        let pressedAt: TimeInterval
+    }
+
+    private struct PendingModifierTap {
+        let key: ModifierTapKey
+        let isRightCommand: Bool
+        let releasedAt: TimeInterval
+    }
+
+    private static let maxModifierTapDuration: TimeInterval = 0.35
+    private static let maxDoubleTapInterval: TimeInterval = 0.35
+
     private(set) var binding: HotKeyPreset?
     private var originalBinding: HotKeyPreset?
     private(set) var isRecording = false
     private var validationErrorText: String?
+    private var pendingModifierPress: PendingModifierPress?
+    private var pendingModifierTap: PendingModifierTap?
+    private var modifierTapTimer: Timer?
     private var isHovered = false
     private var tracking: NSTrackingArea?
 
     let allowsClearing: Bool
+    let allowsModifierTap: Bool
     private let compact: Bool
+    var modifierTapCommitDelay: TimeInterval = 0.35
 
     var onChange: ((HotKeyPreset?) -> Void)?
     var onRecordingStateChanged: ((Bool) -> Void)?
@@ -20,9 +41,15 @@ import Carbon
     private var labelTrailingToEdge: NSLayoutConstraint!
     private var labelTrailingToClear: NSLayoutConstraint!
 
-    init(binding: HotKeyPreset?, allowsClearing: Bool = true, compact: Bool = false) {
+    init(
+        binding: HotKeyPreset?,
+        allowsClearing: Bool = true,
+        compact: Bool = false,
+        allowsModifierTap: Bool = false
+    ) {
         self.binding = binding
         self.allowsClearing = allowsClearing
+        self.allowsModifierTap = allowsModifierTap
         self.compact = compact
         clearButton = NSButton(frame: .zero)
         super.init(frame: .zero)
@@ -146,6 +173,14 @@ import Carbon
         return processKey(keyCode: UInt32(event.keyCode), modifiers: Self.carbonModifiers(event.modifierFlags))
     }
 
+    override func flagsChanged(with event: NSEvent) {
+        guard isEnabled, isRecording, allowsModifierTap else {
+            super.flagsChanged(with: event)
+            return
+        }
+        processModifierFlags(event.modifierFlags, keyCode: event.keyCode, timestamp: event.timestamp)
+    }
+
     func setBinding(_ binding: HotKeyPreset?) {
         if isRecording {
             finishRecording()
@@ -159,6 +194,7 @@ import Carbon
         guard isEnabled else { return }
         originalBinding = binding
         validationErrorText = nil
+        resetPendingModifierTap()
         let wasRecording = isRecording
         isRecording = true
         updateDisplay()
@@ -169,6 +205,7 @@ import Carbon
 
     @discardableResult
     func processKey(keyCode: UInt32, modifiers: UInt32) -> Bool {
+        resetPendingModifierTap()
         if keyCode == UInt32(kVK_Escape) {
             binding = originalBinding
             finishRecording()
@@ -190,11 +227,67 @@ import Carbon
             updateDisplay()
             return false
         }
-        let updated = HotKeyPreset.custom(keyCode: keyCode, modifiers: modifiers)
-        binding = updated
-        finishRecording()
-        onChange?(updated)
+        commitBinding(.custom(keyCode: keyCode, modifiers: modifiers))
         return true
+    }
+
+    func processModifierFlags(_ flags: NSEvent.ModifierFlags, keyCode: UInt16, timestamp: TimeInterval) {
+        guard isEnabled, isRecording, allowsModifierTap else { return }
+        validationErrorText = nil
+        guard let key = ModifierTapKey.from(keyCode: keyCode) else {
+            resetPendingModifierTap()
+            updateDisplay()
+            return
+        }
+        let relevant = flags.intersection(ModifierTapKey.trackedModifierFlags)
+
+        if relevant == key.flag && pendingModifierPress == nil {
+            if key == .command && HotKeyModifiers.hasBothCommandKeys(flags) {
+                resetPendingModifierTap()
+                updateDisplay()
+                return
+            }
+            cancelModifierTapTimer()
+            if let first = pendingModifierTap,
+               first.key != key || !(0...Self.maxDoubleTapInterval).contains(timestamp - first.releasedAt) {
+                pendingModifierTap = nil
+            }
+            pendingModifierPress = PendingModifierPress(
+                key: key,
+                keyCode: keyCode,
+                isRightCommand: HotKeyModifiers.isRightCommandOnly(flags),
+                pressedAt: timestamp
+            )
+            updateDisplay()
+            return
+        }
+
+        if relevant.isEmpty, let press = pendingModifierPress {
+            pendingModifierPress = nil
+            guard press.key == key, press.keyCode == keyCode,
+                  (0...Self.maxModifierTapDuration).contains(timestamp - press.pressedAt) else {
+                resetPendingModifierTap()
+                updateDisplay()
+                return
+            }
+            if let first = pendingModifierTap,
+               first.key == key,
+               (0...Self.maxDoubleTapInterval).contains(press.pressedAt - first.releasedAt) {
+                commitBinding(.doubleTap(key))
+                return
+            }
+            pendingModifierTap = PendingModifierTap(
+                key: key,
+                isRightCommand: press.isRightCommand,
+                releasedAt: timestamp
+            )
+            scheduleModifierTapResolution()
+            updateDisplay()
+            return
+        }
+
+        resetPendingModifierTap()
+        updateDisplay()
     }
 
     func clearBinding() {
@@ -208,20 +301,71 @@ import Carbon
         clearBinding()
     }
 
+    private func commitBinding(_ updated: HotKeyPreset) {
+        binding = updated
+        finishRecording()
+        onChange?(updated)
+    }
+
+    private func scheduleModifierTapResolution() {
+        cancelModifierTapTimer()
+        let timer = Timer(timeInterval: modifierTapCommitDelay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.resolvePendingModifierTap()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        modifierTapTimer = timer
+    }
+
+    private func resolvePendingModifierTap() {
+        cancelModifierTapTimer()
+        guard isRecording, pendingModifierPress == nil, let pending = pendingModifierTap else { return }
+        pendingModifierTap = nil
+        if pending.isRightCommand {
+            commitBinding(.rightCommandTap)
+        } else {
+            updateDisplay()
+        }
+    }
+
+    private func cancelModifierTapTimer() {
+        modifierTapTimer?.invalidate()
+        modifierTapTimer = nil
+    }
+
+    private func resetPendingModifierTap() {
+        cancelModifierTapTimer()
+        pendingModifierPress = nil
+        pendingModifierTap = nil
+    }
+
     private func finishRecording() {
         let wasRecording = isRecording
         isRecording = false
         validationErrorText = nil
+        resetPendingModifierTap()
         updateDisplay()
         if wasRecording {
             onRecordingStateChanged?(false)
         }
     }
 
+    private func recordingPromptText() -> String {
+        if let validationErrorText { return validationErrorText }
+        if let pending = pendingModifierTap {
+            if pending.isRightCommand {
+                return L10n.tr("hotkey.pending_right_command_tap")
+            }
+            return L10n.format("hotkey.pending_double_tap", pending.key.symbol)
+        }
+        return compact ? L10n.tr("hotkey.recording_short") : L10n.tr("hotkey.press_or_cancel")
+    }
+
     private func updateDisplay() {
         let showClearButton: Bool
         if isRecording {
-            label.stringValue = validationErrorText ?? (compact ? L10n.tr("hotkey.recording_short") : L10n.tr("hotkey.press_or_cancel"))
+            label.stringValue = recordingPromptText()
             label.font = .systemFont(ofSize: 12, weight: .medium)
             showClearButton = false
             toolTip = L10n.tr("hotkey.press_or_cancel")

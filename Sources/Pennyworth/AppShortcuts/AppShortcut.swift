@@ -55,19 +55,12 @@ enum AppShortcutValidationError: LocalizedError, Equatable {
 }
 
 extension AppShortcut {
-    private struct KeyBindingIdentity: Hashable {
-        let keyCode: UInt32
-        let modifiers: UInt32
-    }
-
     static func validate(_ shortcuts: [AppShortcut], reservedHotKeys: [HotKeyPreset]) throws {
         guard shortcuts.count <= 64 else {
             throw AppShortcutValidationError.tooManyShortcuts
         }
         var seenIDs = Set<String>()
-        var usedBindings = Set(
-            reservedHotKeys.map { KeyBindingIdentity(keyCode: $0.keyCode, modifiers: $0.modifiers) }
-        )
+        var usedBindings = Set(reservedHotKeys.map(\.trigger))
         for shortcut in shortcuts {
             guard !shortcut.id.isEmpty, shortcut.id.count <= 64 else {
                 throw AppShortcutValidationError.invalidIdentifier
@@ -93,11 +86,7 @@ extension AppShortcut {
             guard SettingsStore.isValidAppShortcutBinding(shortcut.hotKey) else {
                 throw AppShortcutValidationError.invalidHotKey
             }
-            let identity = KeyBindingIdentity(
-                keyCode: shortcut.hotKey.keyCode,
-                modifiers: shortcut.hotKey.modifiers
-            )
-            guard usedBindings.insert(identity).inserted else {
+            guard usedBindings.insert(shortcut.hotKey.trigger).inserted else {
                 throw AppShortcutValidationError.duplicateHotKey(shortcut.hotKey.title)
             }
         }

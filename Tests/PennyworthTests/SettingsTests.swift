@@ -36,6 +36,73 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(SettingsStore(defaults: defaults).settings, changed)
     }
 
+    func testModifierTapHotKeysPersistAndRejectConflictsAndDisallowedSlots() throws {
+        let name = "ModifierTapHotKeys.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = SettingsStore(defaults: defaults)
+
+        let valid = LauncherSettings(
+            hotKey: .rightCommandTap,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            clipboardHotKey: .doubleTap(.option)
+        )
+        try store.save(valid)
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings, valid)
+
+        let validDoubleCommand = LauncherSettings(
+            hotKey: .doubleTap(.command),
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            clipboardHotKey: .rightCommandTap
+        )
+        try store.save(validDoubleCommand)
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings, validDoubleCommand)
+
+        // Duplicate modifier-tap hotkeys between launcher and clipboard are rejected.
+        XCTAssertThrowsError(try store.save(LauncherSettings(
+            hotKey: .rightCommandTap,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            clipboardHotKey: .rightCommandTap
+        )))
+        XCTAssertThrowsError(try store.save(LauncherSettings(
+            hotKey: .doubleTap(.command),
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            clipboardHotKey: .doubleTap(.command)
+        )))
+
+        // Modifier-tap hotkeys are not allowed in screenshot, upload, or app shortcut slots.
+        XCTAssertThrowsError(try store.save(LauncherSettings(
+            hotKey: .optionSpace,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            screenshotHotKey: .rightCommandTap
+        )))
+        XCTAssertThrowsError(try store.save(LauncherSettings(
+            hotKey: .optionSpace,
+            searchDirectories: [],
+            searchEngine: .google,
+            rememberUsage: true,
+            appShortcuts: [
+                AppShortcut(
+                    id: "safari",
+                    bundleIdentifier: "com.apple.Safari",
+                    appPath: "/Applications/Safari.app",
+                    appName: "Safari",
+                    hotKey: .doubleTap(.shift)
+                ),
+            ]
+        )))
+    }
+
     func testSettingsPersistAndEmptyScopesStayEmpty() throws {
         let name = "PennyworthTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

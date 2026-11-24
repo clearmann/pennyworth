@@ -45,6 +45,26 @@ final class SettingsNavigationTests: XCTestCase {
         ))
         controller.selectPage("不存在")
         XCTAssertEqual(controller.selectedPageTitle, "通用")
+
+        // Alfred-style direct modifier-tap recording on General hotkeys persists immediately.
+        let leftFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x08)
+        hotKey.beginRecording()
+        hotKey.processModifierFlags(leftFlags, keyCode: 55, timestamp: 1.0)
+        hotKey.processModifierFlags([], keyCode: 55, timestamp: 1.05)
+        hotKey.processModifierFlags(leftFlags, keyCode: 55, timestamp: 1.15)
+        hotKey.processModifierFlags([], keyCode: 55, timestamp: 1.20)
+        XCTAssertEqual(store.settings.hotKey, .doubleTap(.command))
+        XCTAssertEqual(hotKey.binding, .doubleTap(.command))
+
+        let clipboardHotKey = try XCTUnwrap(views.compactMap { $0 as? HotKeyRecorderView }.first {
+            $0.accessibilityLabel() == "剪贴板历史热键"
+        })
+        clipboardHotKey.beginRecording()
+        clipboardHotKey.processModifierFlags(.option, keyCode: 58, timestamp: 2.0)
+        clipboardHotKey.processModifierFlags([], keyCode: 58, timestamp: 2.05)
+        clipboardHotKey.processModifierFlags(.option, keyCode: 58, timestamp: 2.15)
+        clipboardHotKey.processModifierFlags([], keyCode: 58, timestamp: 2.20)
+        XCTAssertEqual(store.settings.clipboardHotKey, .doubleTap(.option))
     }
 
     @MainActor func testBookmarkSwitchesShareOnePreferenceAndPersistImmediately() async throws {
@@ -170,7 +190,7 @@ final class SettingsNavigationTests: XCTestCase {
         try secretStore.setSecret("demo-secret-2", for: host2.id)
 
         let sampleSettings = LauncherSettings(
-            hotKey: .custom(keyCode: 80, modifiers: 0), // F19
+            hotKey: .rightCommandTap,
             searchDirectories: [
                 FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents").path,
                 FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop").path,

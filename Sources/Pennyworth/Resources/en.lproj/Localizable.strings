@@ -276,7 +276,11 @@
 "screenshot.save.default_name" = "Screenshot";
 
 "hotkey.modifier.right_command" = "Right ⌘";
-"settings.general.right_command_note" = "With F19 alone as the global hotkey, tap and release Right ⌘ to show or hide search. Right ⌘ shortcuts do not also open search. Left ⌘ is unchanged.";
+"hotkey.right_command_tap" = "Right ⌘ Tap";
+"hotkey.double_tap" = "%@ Double Tap";
+"hotkey.pending_right_command_tap" = "Right ⌘…";
+"hotkey.pending_double_tap" = "Tap %@ again";
+"settings.general.right_command_note" = "Click a field to record a key combination, double-tap a modifier (⌘ / ⌥ / ⌃ / ⇧), or tap Right ⌘ alone. Key chords and Left ⌘ are unaffected.";
 "settings.page.app_shortcuts" = "App Shortcuts";
 "settings.app_shortcuts.description" = "Assign global keyboard shortcuts to launch or switch to applications directly.";
 "settings.app_shortcuts.note" = "Right Command shortcuts (such as Right ⌘W) work independently from Left Command shortcuts (such as Left ⌘W to close windows). Click any shortcut pill to re-record inline.";

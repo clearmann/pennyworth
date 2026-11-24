@@ -1,6 +1,52 @@
 import AppKit
 import Carbon
 
+enum ModifierTapKey: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
+    case command
+    case option
+    case control
+    case shift
+
+    static let trackedModifierFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift, .function]
+
+    var symbol: String {
+        switch self {
+        case .command: return "⌘"
+        case .option: return "⌥"
+        case .control: return "⌃"
+        case .shift: return "⇧"
+        }
+    }
+
+    var flag: NSEvent.ModifierFlags {
+        switch self {
+        case .command: return .command
+        case .option: return .option
+        case .control: return .control
+        case .shift: return .shift
+        }
+    }
+
+    var keyCodes: Set<UInt16> {
+        switch self {
+        case .command: return [UInt16(kVK_Command), UInt16(kVK_RightCommand)]
+        case .option: return [UInt16(kVK_Option), UInt16(kVK_RightOption)]
+        case .control: return [UInt16(kVK_Control), UInt16(kVK_RightControl)]
+        case .shift: return [UInt16(kVK_Shift), UInt16(kVK_RightShift)]
+        }
+    }
+
+    static func from(keyCode: UInt16) -> ModifierTapKey? {
+        allCases.first { $0.keyCodes.contains(keyCode) }
+    }
+}
+
+enum HotKeyTrigger: Hashable, Sendable {
+    case keyCombo(keyCode: UInt32, modifiers: UInt32)
+    case rightCommandTap
+    case doubleTap(ModifierTapKey)
+}
+
 enum HotKeyModifiers {
     static let rightCommand: UInt32 = 1 << 16
     static let deviceLeftCommandMask: UInt = 0x0000_0008
@@ -14,6 +60,11 @@ enum HotKeyModifiers {
         flags.contains(.command)
             && (flags.rawValue & deviceRightCommandMask) != 0
             && (flags.rawValue & deviceLeftCommandMask) == 0
+    }
+
+    static func hasBothCommandKeys(_ flags: NSEvent.ModifierFlags) -> Bool {
+        let both = deviceLeftCommandMask | deviceRightCommandMask
+        return (flags.rawValue & both) == both
     }
 
     static func usesRightCommand(_ modifiers: UInt32) -> Bool {

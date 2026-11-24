@@ -30,25 +30,38 @@ final class HotKeyManager {
     }
 
     private struct Registration {
-        let keyCode: UInt32
-        let modifiers: UInt32
+        let trigger: HotKeyTrigger
         let callback: () -> Void
 
         var usesRightCommand: Bool {
-            HotKeyModifiers.usesRightCommand(modifiers)
+            if case .keyCombo(_, let modifiers) = trigger {
+                return HotKeyModifiers.usesRightCommand(modifiers)
+            }
+            return false
         }
 
-        var carbonSlot: CarbonSlot {
-            CarbonSlot(
+        var carbonSlot: CarbonSlot? {
+            guard case .keyCombo(let keyCode, let modifiers) = trigger else { return nil }
+            return CarbonSlot(
                 keyCode: keyCode,
                 modifiers: HotKeyModifiers.carbonModifiers(for: modifiers)
             )
+        }
+
+        var needsModifierMonitoring: Bool {
+            switch trigger {
+            case .keyCombo(_, let modifiers):
+                return HotKeyModifiers.usesRightCommand(modifiers)
+            case .rightCommandTap, .doubleTap:
+                return true
+            }
         }
     }
 
     private let backend: HotKeyBackend
     private let modifierMonitor: RightCommandMonitoring
     private let rightCommandTap: RightCommandTap
+    private let doubleTapDetector: ModifierDoubleTapDetector
     private let legacyName = "default"
     private let logger = Logger(subsystem: "com.clearmann.pennyworth", category: "HotKey")
     private var installed = false
@@ -69,12 +82,7 @@ final class HotKeyManager {
         self.backend = backend
         self.modifierMonitor = modifierMonitor
         self.rightCommandTap = RightCommandTap(inputWasQuietSince: inputWasQuietSince)
-    }
-
-    private var f19Launcher: Registration? {
-        guard let launcher = registrations["launcher"], launcher.keyCode == UInt32(kVK_F19),
-              launcher.modifiers == 0 else { return nil }
-        return launcher
+        self.doubleTapDetector = ModifierDoubleTapDetector(inputWasQuietSince: inputWasQuietSince)
     }
 
     func register(keyCode: UInt32 = UInt32(kVK_Space), modifiers: UInt32 = UInt32(optionKey)) throws {
@@ -83,30 +91,38 @@ final class HotKeyManager {
         }
     }
 
+    func register(name: String, preset: HotKeyPreset, callback: @escaping () -> Void) throws {
+        try register(name: name, trigger: preset.trigger, callback: callback)
+    }
+
     func register(name: String, keyCode: UInt32, modifiers: UInt32, callback: @escaping () -> Void) throws {
-        if let current = registrations[name], current.keyCode == keyCode, current.modifiers == modifiers {
-            registrations = registrations.merging([name: Registration(keyCode: keyCode, modifiers: modifiers, callback: callback)]) { _, new in new }
+        try register(name: name, trigger: .keyCombo(keyCode: keyCode, modifiers: modifiers), callback: callback)
+    }
+
+    func register(name: String, trigger: HotKeyTrigger, callback: @escaping () -> Void) throws {
+        if let current = registrations[name], current.trigger == trigger {
+            registrations = registrations.merging([name: Registration(trigger: trigger, callback: callback)]) { _, new in new }
             return
         }
         let hasDuplicate = registrations.contains { otherName, existing in
-            otherName != name && existing.keyCode == keyCode && existing.modifiers == modifiers
+            otherName != name && existing.trigger == trigger
         }
         guard !hasDuplicate else {
             throw HotKeyError.registrationFailed(OSStatus(eventHotKeyExistsErr))
         }
-        if !installed {
+        let candidate = Registration(trigger: trigger, callback: callback)
+        if candidate.carbonSlot != nil, !installed {
             try backend.install { [weak self] id in self?.handle(id: id) }
             installed = true
         }
-        let candidate = Registration(keyCode: keyCode, modifiers: modifiers, callback: callback)
         if candidate.usesRightCommand && !isMonitoringRightCommand {
             isRightCommandActive = modifierMonitor.currentRightCommandState()
         }
         try prepareSlotForRegistration(candidate)
         let previous = registrations[name]
         registrations = registrations.merging([name: candidate]) { _, new in new }
-        if let previous, !shouldKeepSlotActive(previous.carbonSlot) {
-            unregisterSlot(previous.carbonSlot)
+        if let previousSlot = previous?.carbonSlot, !shouldKeepSlotActive(previousSlot) {
+            unregisterSlot(previousSlot)
         }
         syncModifierMonitoring()
         updateLegacyState()
@@ -132,6 +148,7 @@ final class HotKeyManager {
         guard isSuspended != suspended else { return }
         isSuspended = suspended
         rightCommandTap.cancel()
+        doubleTapDetector.cancel()
         if !suspended && isMonitoringRightCommand {
             isRightCommandActive = modifierMonitor.currentRightCommandState()
         }
@@ -139,7 +156,7 @@ final class HotKeyManager {
     }
 
     private func prepareSlotForRegistration(_ candidate: Registration) throws {
-        let slot = candidate.carbonSlot
+        guard let slot = candidate.carbonSlot else { return }
         guard activeSlots[slot] == nil else { return }
         let needsActiveNow = !isSuspended && (!candidate.usesRightCommand || isRightCommandActive)
         let id = allocateID()
@@ -157,11 +174,39 @@ final class HotKeyManager {
             isRightCommandActive = change.isActive
             reconcileActiveSlots()
         }
-        guard !isSuspended, let launcher = f19Launcher, activeSlots[launcher.carbonSlot] != nil else {
+        guard !isSuspended else {
             rightCommandTap.cancel()
+            doubleTapDetector.cancel()
             return
         }
-        if rightCommandTap.completesTap(change, wasActive: wasActive) { launcher.callback() }
+        let rightTapRegistration = registrations.values.first { $0.trigger == .rightCommandTap }
+        if let rightTapRegistration {
+            if rightCommandTap.completesTap(change, wasActive: wasActive) {
+                doubleTapDetector.cancel()
+                rightTapRegistration.callback()
+                return
+            }
+        } else {
+            rightCommandTap.cancel()
+        }
+        let hasDoubleTap = registrations.values.contains {
+            if case .doubleTap = $0.trigger { return true }
+            return false
+        }
+        guard hasDoubleTap else {
+            doubleTapDetector.cancel()
+            return
+        }
+        if rightTapRegistration != nil,
+           case .flagsChanged(let keyCode, _, _) = change,
+           keyCode == UInt16(kVK_RightCommand) {
+            doubleTapDetector.cancel()
+            return
+        }
+        if let key = doubleTapDetector.completedDoubleTap(change),
+           let registration = registrations.values.first(where: { $0.trigger == .doubleTap(key) }) {
+            registration.callback()
+        }
     }
 
     private func reconcileActiveSlots() {
@@ -170,8 +215,9 @@ final class HotKeyManager {
         }
         guard !isSuspended else { return }
         for registration in registrations.values {
-            let slot = registration.carbonSlot
-            guard shouldKeepSlotActive(slot), activeSlots[slot] == nil else { continue }
+            guard let slot = registration.carbonSlot,
+                  shouldKeepSlotActive(slot),
+                  activeSlots[slot] == nil else { continue }
             let id = allocateID()
             do {
                 try backend.register(keyCode: slot.keyCode, modifiers: slot.modifiers, id: id)
@@ -198,7 +244,8 @@ final class HotKeyManager {
 
     private func syncModifierMonitoring() {
         rightCommandTap.cancel()
-        let needsMonitoring = f19Launcher != nil || registrations.values.contains { $0.usesRightCommand }
+        doubleTapDetector.cancel()
+        let needsMonitoring = registrations.values.contains { $0.needsModifierMonitoring }
         if needsMonitoring && !isMonitoringRightCommand {
             isMonitoringRightCommand = true
             isRightCommandActive = modifierMonitor.currentRightCommandState()
@@ -225,6 +272,7 @@ final class HotKeyManager {
         guard !isSuspended,
               let slot = activeSlots.first(where: { $0.value == id })?.key else { return }
         rightCommandTap.cancel()
+        doubleTapDetector.cancel()
         let rightMatch = registrations.values.first { $0.carbonSlot == slot && $0.usesRightCommand }
         let standardMatch = registrations.values.first { $0.carbonSlot == slot && !$0.usesRightCommand }
         if isRightCommandActive {
@@ -235,15 +283,17 @@ final class HotKeyManager {
     }
 
     private func updateLegacyState() {
-        guard let registration = registrations[legacyName] else {
+        guard let registration = registrations[legacyName],
+              case .keyCombo(let keyCode, let modifiers) = registration.trigger,
+              let slot = registration.carbonSlot else {
             currentID = nil
             currentKey = nil
             currentModifiers = nil
             return
         }
-        currentID = activeSlots[registration.carbonSlot]
-        currentKey = registration.keyCode
-        currentModifiers = registration.modifiers
+        currentID = activeSlots[slot]
+        currentKey = keyCode
+        currentModifiers = modifiers
     }
 }
 
